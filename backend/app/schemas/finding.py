@@ -3,11 +3,13 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 class EvidenceReferenceItem(BaseModel):
-    type: str = "clause"  # clause, exclusion, revision_limit, message
+    type: str = "clause"  # clause, exclusion, revision_limit, message, missing_evidence
     quote: Optional[str] = None
     ref: Optional[str] = None
+    section: Optional[str] = None
     page: Optional[int] = None
     confidence: Optional[float] = None
+    notes: Optional[str] = None
     is_missing_or_incomplete: bool = False
 
 class FindingBase(BaseModel):

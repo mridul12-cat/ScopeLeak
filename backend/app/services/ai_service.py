@@ -404,12 +404,13 @@ class DeterministicScopeEngine:
                 None
             )
             if matched_item:
+                clause_ref = matched_item.get("source_clause_id") or matched_item.get("section_reference") or "Contract Baseline Scope"
                 return RequestAnalysisResult(
                     classification="likely_out_of_scope",
-                    explanation=f"Client requested payment/checkout integration. Contract {matched_item.get('source_clause_id') or 'clause'} explicitly excludes this: '{matched_item.get('description')}'.",
+                    explanation=f"Client requested payment/checkout integration. Contract {clause_ref} explicitly excludes this: '{matched_item.get('description')}'.",
                     confidence=0.95,
                     matched_scope_item_id=matched_item.get("id"),
-                    matched_clause_id=matched_item.get("source_clause_id"),
+                    matched_clause_id=clause_ref,
                     supporting_quote=matched_item.get("source_quote"),
                     section_reference=matched_item.get("section_reference"),
                     page_number=matched_item.get("page_number", 1),
@@ -442,17 +443,18 @@ class DeterministicScopeEngine:
             matched_item = next(
                 (i for i in scope_items if i.get("item_type") == "exclusion" and any(
                     t in (i.get("description", "") + " " + (i.get("source_quote") or "")).lower()
-                    for t in ["portal", "account", "accounts", "history", "login", "user", "users", "auth", "dashboard"]
+                    for t in ["portal", "account", "accounts", "history", "login", "user", "users", "auth", "dashboard", "authentication"]
                 )),
                 None
             )
             if matched_item:
+                clause_ref = matched_item.get("source_clause_id") or matched_item.get("section_reference") or "Contract Baseline Scope"
                 return RequestAnalysisResult(
                     classification="likely_out_of_scope",
-                    explanation=f"Client requested dynamic customer portal/account features, which is explicitly excluded under {matched_item.get('source_clause_id') or 'baseline terms'}: '{matched_item.get('description')}'.",
+                    explanation=f"Client requested dynamic customer portal/account features, which is explicitly excluded under {clause_ref}: '{matched_item.get('description')}'.",
                     confidence=0.92,
                     matched_scope_item_id=matched_item.get("id"),
-                    matched_clause_id=matched_item.get("source_clause_id"),
+                    matched_clause_id=clause_ref,
                     supporting_quote=matched_item.get("source_quote"),
                     section_reference=matched_item.get("section_reference"),
                     page_number=matched_item.get("page_number", 1),
@@ -468,12 +470,13 @@ class DeterministicScopeEngine:
                 None
             )
             if deliverable_item:
+                clause_ref = deliverable_item.get("source_clause_id") or deliverable_item.get("section_reference") or "Contract Baseline Scope"
                 return RequestAnalysisResult(
                     classification="likely_out_of_scope",
-                    explanation=f"Customer order-history and dynamic account features are dynamic backend functionality absent from the agreed marketing/static website scope ({deliverable_item.get('source_clause_id') or 'Clause 2.1'}).",
+                    explanation=f"Customer order-history and dynamic account features are dynamic backend functionality absent from the agreed marketing/static website scope ({clause_ref}).",
                     confidence=0.85,
                     matched_scope_item_id=deliverable_item.get("id"),
-                    matched_clause_id=deliverable_item.get("source_clause_id"),
+                    matched_clause_id=clause_ref,
                     supporting_quote=deliverable_item.get("source_quote"),
                     section_reference=deliverable_item.get("section_reference"),
                     page_number=deliverable_item.get("page_number", 1),
@@ -496,12 +499,13 @@ class DeterministicScopeEngine:
         if any(term in msg_lower for term in ["mobile nav", "mobile navigation", "overlap", "responsive", "bug", "fix", "mobile screen"]):
             matched_item = next((i for i in scope_items if "responsive" in i.get("description", "").lower() or "mobile" in i.get("description", "").lower()), None)
             if matched_item:
+                clause_ref = matched_item.get("source_clause_id") or matched_item.get("section_reference") or "Contract Baseline Scope"
                 return RequestAnalysisResult(
                     classification="likely_in_scope",
-                    explanation=f"Fixing overlapping navigation on mobile devices is covered under the agreed deliverable for responsive layout across screen sizes ({matched_item.get('source_clause_id') or 'Clause 2.2'}).",
+                    explanation=f"Fixing overlapping navigation on mobile devices is covered under the agreed deliverable for responsive layout across screen sizes ({clause_ref}).",
                     confidence=0.85,
                     matched_scope_item_id=matched_item.get("id"),
-                    matched_clause_id=matched_item.get("source_clause_id"),
+                    matched_clause_id=clause_ref,
                     supporting_quote=matched_item.get("source_quote"),
                     section_reference=matched_item.get("section_reference"),
                     page_number=matched_item.get("page_number", 1),
@@ -524,12 +528,13 @@ class DeterministicScopeEngine:
         if any(term in msg_lower for term in ["color", "button", "blue", "styling", "font", "css"]):
             matched_item = next((i for i in scope_items if i.get("item_type") == "revision_limit" or "revision" in i.get("description", "").lower()), None)
             if matched_item:
+                clause_ref = matched_item.get("source_clause_id") or matched_item.get("section_reference") or "Contract Baseline Scope"
                 return RequestAnalysisResult(
                     classification="ambiguous",
-                    explanation=f"Changing styling is covered if within agreed revision rounds ({matched_item.get('source_clause_id') or 'Clause 3.2'}), but billable if revision rounds have been exhausted.",
+                    explanation=f"Changing styling is covered if within agreed revision rounds ({clause_ref}), but billable if revision rounds have been exhausted.",
                     confidence=0.60,
                     matched_scope_item_id=matched_item.get("id"),
-                    matched_clause_id=matched_item.get("source_clause_id"),
+                    matched_clause_id=clause_ref,
                     supporting_quote=matched_item.get("source_quote"),
                     section_reference=matched_item.get("section_reference"),
                     page_number=matched_item.get("page_number", 1),
@@ -713,33 +718,42 @@ Output JSON format:
             if matched_id and matched_id in valid_id_map:
                 # Direct match by confirmed DB UUID
                 matched_item = valid_id_map[matched_id]
+                clause_ref = matched_item.get("source_clause_id") or matched_item.get("section_reference") or "Contract Baseline Scope"
                 if not data.get("matched_clause_id"):
-                    data["matched_clause_id"] = matched_item.get("source_clause_id")
+                    data["matched_clause_id"] = clause_ref
                 if not data.get("supporting_quote"):
-                    data["supporting_quote"] = matched_item.get("source_quote")
+                    data["supporting_quote"] = matched_item.get("source_quote") or matched_item.get("description")
                 if not data.get("section_reference"):
                     data["section_reference"] = matched_item.get("section_reference")
             else:
-                # Model may have cited clause identifier or verbatim quote rather than DB UUID
+                # Model may have cited clause identifier, section reference, or verbatim quote rather than DB UUID
                 resolved_item = None
                 target_clause = data.get("matched_clause_id") or matched_id
                 if target_clause:
                     t_str = str(target_clause).strip().lower()
                     resolved_item = next(
-                        (i for i in scope_items if i.get("source_clause_id") and i.get("source_clause_id").strip().lower() == t_str),
+                        (i for i in scope_items if (
+                            (i.get("source_clause_id") and i.get("source_clause_id").strip().lower() == t_str) or
+                            (i.get("section_reference") and i.get("section_reference").strip().lower() == t_str) or
+                            (i.get("section_reference") and t_str in i.get("section_reference").strip().lower())
+                        )),
                         None
                     )
                 if not resolved_item and data.get("supporting_quote"):
                     quote_snippet = data["supporting_quote"].strip().lower()
                     resolved_item = next(
-                        (i for i in scope_items if i.get("source_quote") and quote_snippet in i["source_quote"].lower()),
+                        (i for i in scope_items if (
+                            (i.get("source_quote") and quote_snippet in i["source_quote"].lower()) or
+                            (i.get("description") and quote_snippet in i["description"].lower())
+                        )),
                         None
                     )
 
                 if resolved_item:
+                    clause_ref = resolved_item.get("source_clause_id") or resolved_item.get("section_reference") or "Contract Baseline Scope"
                     data["matched_scope_item_id"] = resolved_item.get("id")
-                    data["matched_clause_id"] = resolved_item.get("source_clause_id")
-                    data["supporting_quote"] = resolved_item.get("source_quote")
+                    data["matched_clause_id"] = clause_ref
+                    data["supporting_quote"] = resolved_item.get("source_quote") or resolved_item.get("description")
                     data["section_reference"] = resolved_item.get("section_reference")
                 else:
                     if matched_id or data.get("matched_clause_id"):

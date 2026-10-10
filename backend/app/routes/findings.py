@@ -88,19 +88,36 @@ async def analyze_requests(
 
         # Evidence references list
         ev_refs = []
-        if analysis.supporting_quote or analysis.matched_clause_id:
+        has_grounded_evidence = bool(analysis.matched_scope_item_id or analysis.supporting_quote)
+        is_genuine_ambiguity = (
+            analysis.classification == "ambiguous"
+            or not has_grounded_evidence
+            or (
+                bool(analysis.missing_evidence_notes)
+                and any(kw in analysis.missing_evidence_notes.lower() for kw in ["lack", "missing", "ambigu", "unclear", "no matching", "clarif"])
+                and analysis.classification not in ("likely_out_of_scope", "likely_in_scope")
+            )
+        )
+
+        clause_ref = analysis.matched_clause_id or analysis.section_reference or (
+            "Section Reference: " + analysis.section_reference if analysis.section_reference else "Confirmed Baseline Scope"
+        )
+
+        if analysis.supporting_quote or analysis.matched_clause_id or analysis.section_reference:
             ev_refs.append({
                 "type": "clause",
                 "quote": analysis.supporting_quote,
-                "ref": analysis.matched_clause_id,
+                "ref": clause_ref,
                 "section": analysis.section_reference,
                 "page": analysis.page_number,
                 "confidence": analysis.confidence,
-                "is_missing_or_incomplete": bool(analysis.missing_evidence_notes),
+                "notes": analysis.missing_evidence_notes,
+                "is_missing_or_incomplete": is_genuine_ambiguity,
             })
         elif analysis.missing_evidence_notes:
             ev_refs.append({
                 "type": "missing_evidence",
+                "ref": "Ambiguous Baseline",
                 "notes": analysis.missing_evidence_notes,
                 "is_missing_or_incomplete": True,
             })

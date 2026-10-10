@@ -119,7 +119,15 @@ export const EvidenceComparisonModal: React.FC<Props> = ({
                 <div>
                   <span className="font-semibold text-slate-600">Clause Reference:</span>{' '}
                   <span className="font-mono bg-slate-200/60 px-1.5 py-0.5 rounded text-[11px] text-slate-800">
-                    {primaryEvidence?.ref || scopeItem?.source_clause_id || 'Unspecified'}
+                    {primaryEvidence?.ref && primaryEvidence.ref !== 'Unspecified'
+                      ? primaryEvidence.ref
+                      : scopeItem?.source_clause_id
+                      ? scopeItem.source_clause_id
+                      : primaryEvidence?.section
+                      ? primaryEvidence.section
+                      : scopeItem?.section_reference
+                      ? scopeItem.section_reference
+                      : 'Section Reference Pending'}
                   </span>
                 </div>
                 <div>
@@ -148,9 +156,14 @@ export const EvidenceComparisonModal: React.FC<Props> = ({
               {finding.explanation}
             </p>
             {primaryEvidence?.is_missing_or_incomplete && (
-              <div className="mt-3 p-2.5 bg-amber-950/40 border border-amber-700/50 rounded-lg text-amber-200 text-xs flex items-center space-x-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>Notice: Ambiguity detected in baseline records. Human confirmation required before issuing change orders.</span>
+              <div className="mt-3 p-2.5 bg-amber-950/40 border border-amber-700/50 rounded-lg text-amber-200 text-xs flex items-start space-x-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-semibold block">Notice: Ambiguity detected in baseline records.</span>
+                  <span className="text-[11px] text-amber-300/90 block">
+                    {primaryEvidence?.notes || 'Human confirmation required before issuing change orders.'}
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -180,7 +193,7 @@ export const EvidenceComparisonModal: React.FC<Props> = ({
                   </div>
                 </div>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  Calculated Value: {currency} {(hours * defaultRate).toLocaleString()} (@ {currency} {defaultRate}/hr)
+                  Calculated Value: {currency} {(hours * (typeof defaultRate === 'number' && defaultRate > 0 ? defaultRate : 2000)).toLocaleString()} (@ {currency} {typeof defaultRate === 'number' && defaultRate > 0 ? defaultRate : 2000}/hr)
                 </p>
               </div>
 
