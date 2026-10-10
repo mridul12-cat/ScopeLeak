@@ -168,17 +168,272 @@ async def test_mocked_gemini_api_errors_fallback():
     mock_503.status_code = 503
     mock_503.text = '{"error": {"code": 503, "message": "High demand spike", "status": "UNAVAILABLE"}}'
 
-    with patch("httpx.AsyncClient.post", return_value=mock_503):
+    with patch("httpx.AsyncClient.post", return_value=mock_503), \
+         patch("asyncio.sleep", return_value=None):
         res = await engine.analyze_request("Can we add Stripe checkout?", sample_scope_items, 2000.0)
         assert res.provider_source == "deterministic_fallback"
         assert res.classification == "likely_out_of_scope"
-        assert "deterministic rules" in (res.missing_evidence_notes or "")
+        assert "deterministic" in (res.missing_evidence_notes or "").lower()
+        assert "503" in (res.missing_evidence_notes or "")
 
     # Test 2: Network Timeout
-    with patch("httpx.AsyncClient.post", side_effect=httpx.ReadTimeout("Read timed out")):
+    with patch("httpx.AsyncClient.post", side_effect=httpx.ReadTimeout("Read timed out")), \
+         patch("asyncio.sleep", return_value=None):
         res = await engine.analyze_request("Can we add Stripe checkout?", sample_scope_items, 2000.0)
         assert res.provider_source == "deterministic_fallback"
         assert res.classification == "likely_out_of_scope"
+        assert "timeout" in (res.missing_evidence_notes or "").lower() or "readtimeout" in (res.missing_evidence_notes or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_transient_503_retry_and_success():
+    """Simulate a 503 high-demand error on attempt 1 followed by 200 OK on attempt 2."""
+    provider = GeminiProvider(api_key="valid-mock-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "item-scope-42",
+            "item_type": "exclusion",
+            "description": "Customer accounts, authentication, and order history functionality are excluded.",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included.",
+        }
+    ]
+
+    mock_503 = MagicMock()
+    mock_503.status_code = 503
+    mock_503.text = '{"error": {"code": 503, "message": "High demand spike", "status": "UNAVAILABLE"}}'
+
+    mock_200 = MagicMock()
+    mock_200.status_code = 200
+    mock_200.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": json.dumps({
+                                "classification": "likely_out_of_scope",
+                                "explanation": "Customer order history is explicitly excluded under Exclusion 4.2.",
+                                "confidence": 0.95,
+                                "matched_scope_item_id": "item-scope-42",
+                                "matched_clause_id": "Exclusion 4.2",
+                                "supporting_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included.",
+                                "estimated_extra_hours": 5.0,
+                            })
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    call_count = 0
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return mock_503
+        return mock_200
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch("asyncio.sleep", return_value=None):
+        res = await engine.analyze_request(
+            message_text="Can we also add a customer order-history page?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    assert call_count == 2
+    assert res.provider_source == "gemini_live"
+    assert res.classification == "likely_out_of_scope"
+    assert res.matched_scope_item_id == "item-scope-42"
+    assert res.matched_clause_id == "Exclusion 4.2"
+    assert res.estimated_extra_hours == 5.0
+
+
+@pytest.mark.asyncio
+async def test_persistent_503_honest_fallback():
+    """Simulate persistent 503 errors across all retries, verifying honest deterministic fallback with preserved error."""
+    provider = GeminiProvider(api_key="valid-mock-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "item-scope-42",
+            "item_type": "exclusion",
+            "description": "Customer accounts, authentication, and order history functionality are excluded.",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included in the defined deliverables.",
+        }
+    ]
+
+    mock_503 = MagicMock()
+    mock_503.status_code = 503
+    mock_503.text = '{"error": {"code": 503, "message": "High demand spike", "status": "UNAVAILABLE"}}'
+
+    call_count = 0
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        return mock_503
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch("asyncio.sleep", return_value=None):
+        res = await engine.analyze_request(
+            message_text="Can we also add a customer order-history page?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    assert call_count == 4  # All max_attempts exhausted
+    assert res.provider_source == "deterministic_fallback"
+    assert res.classification == "likely_out_of_scope"
+    assert res.matched_scope_item_id == "item-scope-42"
+    assert "503" in (res.missing_evidence_notes or "")
+
+
+@pytest.mark.asyncio
+async def test_permanent_401_no_retries():
+    """Permanent errors like HTTP 401 must fail immediately on attempt 1 without retry."""
+    provider = GeminiProvider(api_key="invalid-api-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "item-1",
+            "item_type": "exclusion",
+            "description": "Payment gateway integration is excluded.",
+            "source_clause_id": "Exclusion 4.1",
+            "source_quote": "Payment gateway integration is strictly out of scope.",
+        }
+    ]
+
+    mock_401 = MagicMock()
+    mock_401.status_code = 401
+    mock_401.text = '{"error": {"code": 401, "message": "API key not valid", "status": "UNAUTHENTICATED"}}'
+
+    call_count = 0
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        return mock_401
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch("asyncio.sleep", return_value=None):
+        res = await engine.analyze_request(
+            message_text="Can we add Stripe checkout?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    assert call_count == 1  # Exactly 1 attempt! No retries!
+    assert res.provider_source == "deterministic_fallback"
+    assert "401" in (res.missing_evidence_notes or "")
+
+
+@pytest.mark.asyncio
+async def test_clause_id_grounding_resolution_from_clause_name():
+    """Verify that when Gemini cites clause name (e.g. Exclusion 4.2) rather than UUID, it resolves to the real UUID."""
+    provider = GeminiProvider(api_key="valid-mock-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "real-uuid-clause-4-2",
+            "item_type": "exclusion",
+            "description": "Customer accounts and order history are excluded.",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included.",
+            "section_reference": "Section 4 - Exclusions",
+        }
+    ]
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": json.dumps({
+                                "classification": "likely_out_of_scope",
+                                "explanation": "Order history is excluded per Exclusion 4.2.",
+                                "confidence": 0.95,
+                                "matched_scope_item_id": "Exclusion 4.2",  # Clause label instead of DB UUID
+                                "matched_clause_id": "Exclusion 4.2",
+                                "supporting_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included.",
+                                "estimated_extra_hours": 5.0,
+                            })
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    with patch("httpx.AsyncClient.post", return_value=mock_resp):
+        res = await engine.analyze_request(
+            message_text="Can we also add a customer order-history page?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    assert res.provider_source == "gemini_live"
+    # Grounding must resolve the real DB UUID!
+    assert res.matched_scope_item_id == "real-uuid-clause-4-2"
+    assert res.matched_clause_id == "Exclusion 4.2"
+    assert res.section_reference == "Section 4 - Exclusions"
+
+
+def test_customer_account_deterministic_semantic_matching():
+    """Test customer order-history semantic matching against exclusions, deliverables, and empty baseline."""
+    # Case 1: Baseline with explicit Exclusion 4.2
+    scope_with_exclusion = [
+        {
+            "id": "scope-ex-42",
+            "item_type": "exclusion",
+            "description": "Customer accounts & order history excluded",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included in the defined deliverables.",
+        }
+    ]
+    res1 = DeterministicScopeEngine.analyze_request("Can we also add a customer order-history page?", scope_with_exclusion)
+    assert res1.classification == "likely_out_of_scope"
+    assert res1.matched_scope_item_id == "scope-ex-42"
+    assert res1.matched_clause_id == "Exclusion 4.2"
+    assert res1.estimated_extra_hours == 5.0
+
+    # Case 2: Baseline without exclusion, but with marketing website deliverable
+    scope_marketing_only = [
+        {
+            "id": "scope-del-21",
+            "item_type": "deliverable",
+            "description": "Five-page marketing website",
+            "source_clause_id": "Clause 2.1",
+            "source_quote": "Delivery of a five-page marketing website comprising Home, About, Services, Case Studies, and Contact.",
+        }
+    ]
+    res2 = DeterministicScopeEngine.analyze_request("Can we add a customer account login dashboard?", scope_marketing_only)
+    assert res2.classification == "likely_out_of_scope"
+    assert res2.matched_scope_item_id == "scope-del-21"
+    assert res2.estimated_extra_hours == 5.0
+
+    # Case 3: Empty baseline
+    res3 = DeterministicScopeEngine.analyze_request("Can we also add a customer order-history page?", [])
+    assert res3.classification == "ambiguous"
+    assert res3.matched_scope_item_id is None
+    assert res3.estimated_extra_hours is None
+    assert "lacks explicit language" in (res3.missing_evidence_notes or "")
 
 
 @pytest.mark.asyncio

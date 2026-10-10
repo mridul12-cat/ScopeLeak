@@ -2,6 +2,9 @@ import os
 import json
 import logging
 import re
+import time
+import random
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 import httpx
 from pydantic import BaseModel, Field
@@ -61,7 +64,17 @@ class GeminiProvider:
         return bool(self.api_key and self.api_key.strip())
 
     async def call_gemini_json(self, prompt: str, system_instruction: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """Call Gemini REST API with JSON response enforcement and thinkingConfig for Gemini 3.8 Flash."""
+        """
+        Call Gemini REST API with JSON response enforcement and thinkingConfig for Gemini 3.8 Flash.
+        Implements bounded retries with exponential backoff and jitter for transient errors:
+        - HTTP 503 (High demand spikes / Service Unavailable)
+        - HTTP 429 (Rate limiting / Quota)
+        - HTTP 502 / 504 (Bad Gateway / Gateway Timeout)
+        - httpx.TimeoutException / httpx.ConnectError
+        
+        Permanent errors (HTTP 400, 401, 403, 404, JSON decode) fail immediately without retry.
+        Safely logs HTTP status and attempt counts without logging API keys or headers.
+        """
         if not self.is_configured():
             return None, "GEMINI_API_KEY is not configured"
 
@@ -94,20 +107,61 @@ class GeminiProvider:
                 "parts": [{"text": system_instruction}]
             }
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload, headers=headers)
-                if response.status_code == 503:
-                    logger.info("Gemini 3.8 Flash returned 503 high demand spike; retrying once after 1.5s...")
-                    import asyncio
-                    await asyncio.sleep(1.5)
+        max_attempts = 4
+        base_delay = 1.0
+        max_delay = 8.0
+        start_time = time.monotonic()
+
+        for attempt in range(max_attempts):
+            elapsed = time.monotonic() - start_time
+            remaining_time = max(0.0, self.timeout - elapsed)
+            if remaining_time <= 1.0:
+                logger.warning(
+                    f"Gemini API request timed out before attempt {attempt + 1}: "
+                    f"elapsed {elapsed:.1f}s reached timeout budget of {self.timeout}s"
+                )
+                return None, f"Gemini API request deadline exceeded ({elapsed:.1f}s >= {self.timeout}s)"
+
+            req_timeout = min(self.timeout, remaining_time)
+
+            try:
+                logger.info(f"Gemini API request attempt {attempt + 1}/{max_attempts} for model '{self.model}'...")
+                async with httpx.AsyncClient(timeout=req_timeout) as client:
                     response = await client.post(url, json=payload, headers=headers)
 
+                # Transient retriable HTTP statuses (503 high demand spike, 429 rate limit, 502/504 gateway)
+                if response.status_code in (503, 429, 502, 504):
+                    logger.warning(
+                        f"Transient HTTP {response.status_code} received from Gemini API on attempt {attempt + 1}/{max_attempts} "
+                        f"for model '{self.model}'."
+                    )
+                    if attempt < max_attempts - 1:
+                        backoff = min(base_delay * (2 ** attempt), max_delay)
+                        jitter = random.uniform(0.1, 0.4)
+                        delay = backoff + jitter
+
+                        now_elapsed = time.monotonic() - start_time
+                        if (self.timeout - now_elapsed) <= (delay + 1.0):
+                            logger.warning(
+                                f"Insufficient time budget for retry ({self.timeout - now_elapsed:.1f}s remaining, need {delay:.1f}s). Aborting retries."
+                            )
+                            return None, f"Gemini API transient HTTP {response.status_code}: demand spike exceeded timeout budget ({response.text[:200]})"
+
+                        logger.info(f"Retrying Gemini API in {delay:.2f}s (backoff={backoff:.1f}s, jitter={jitter:.2f}s)...")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        err_msg = f"Gemini API returned persistent status {response.status_code} after {max_attempts} attempts: {response.text[:200]}"
+                        logger.error(err_msg)
+                        return None, err_msg
+
+                # Non-retriable client errors (400, 401, 403, 404, etc.)
                 if response.status_code != 200:
-                    err_msg = f"Gemini API returned status {response.status_code}: {response.text[:200]}"
+                    err_msg = f"Gemini API returned non-retriable status {response.status_code}: {response.text[:200]}"
                     logger.error(err_msg)
                     return None, err_msg
 
+                # HTTP 200 OK - Process response
                 data = response.json()
                 candidates = data.get("candidates", [])
                 if not candidates:
@@ -140,17 +194,37 @@ class GeminiProvider:
                     cleaned_text = "\n".join(lines).strip()
 
                 parsed = json.loads(cleaned_text)
+                logger.info(f"Gemini API successfully returned valid JSON response on attempt {attempt + 1}")
                 return parsed, None
-        except httpx.RequestError as e:
-            err_detail = str(e) or type(e).__name__
-            logger.error(f"Network error calling Gemini: {err_detail}")
-            return None, f"Network error connecting to Gemini API: {err_detail}"
-        except json.JSONDecodeError as e:
-            logger.error(f"Malformed JSON from Gemini: {e}")
-            return None, f"Malformed JSON from Gemini model: {str(e)}"
-        except Exception as e:
-            logger.error(f"Unexpected error in Gemini provider: {e}")
-            return None, f"Unexpected error calling Gemini: {str(e)}"
+
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                err_detail = type(e).__name__
+                logger.warning(
+                    f"Transient network/timeout error ({err_detail}) on attempt {attempt + 1}/{max_attempts} calling Gemini: {e}"
+                )
+                if attempt < max_attempts - 1:
+                    backoff = min(base_delay * (2 ** attempt), max_delay)
+                    jitter = random.uniform(0.1, 0.4)
+                    delay = backoff + jitter
+                    now_elapsed = time.monotonic() - start_time
+                    if (self.timeout - now_elapsed) <= (delay + 1.0):
+                        logger.warning("Insufficient time budget for retry after network timeout. Aborting retries.")
+                        return None, f"Network timeout calling Gemini API exceeded timeout budget: {err_detail}"
+                    logger.info(f"Retrying Gemini API after network/timeout in {delay:.2f}s...")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    return None, f"Network error calling Gemini API after {max_attempts} attempts: {err_detail}"
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Malformed JSON from Gemini: {e}")
+                return None, f"Malformed JSON from Gemini model: {str(e)}"
+
+            except Exception as e:
+                logger.error(f"Unexpected error in Gemini provider: {e}")
+                return None, f"Unexpected error calling Gemini: {str(e)}"
+
+        return None, "Exceeded maximum retry attempts calling Gemini API"
 
 # Deterministic Fallback Engine for demo or offline mode
 class DeterministicScopeEngine:
@@ -359,17 +433,24 @@ class DeterministicScopeEngine:
                 )
 
         # 3. Customer Order History / Dynamic User Portals
-        if any(term in msg_lower for term in ["order history", "order-history", "user account", "login", "portal", "customer portal", "authentication", "dashboard"]):
+        if any(term in msg_lower for term in [
+            "order history", "order-history", "user account", "customer account",
+            "account page", "profile page", "customer portal", "user portal",
+            "login", "portal", "authentication", "dashboard", "sign in", "sign up", "orders"
+        ]):
             # Check for exclusion first
             matched_item = next(
-                (i for i in scope_items if i.get("item_type") == "exclusion" and any(t in (i.get("description", "") + " " + (i.get("source_quote") or "")).lower() for t in ["portal", "account", "history", "login", "user"])),
+                (i for i in scope_items if i.get("item_type") == "exclusion" and any(
+                    t in (i.get("description", "") + " " + (i.get("source_quote") or "")).lower()
+                    for t in ["portal", "account", "accounts", "history", "login", "user", "users", "auth", "dashboard"]
+                )),
                 None
             )
             if matched_item:
                 return RequestAnalysisResult(
                     classification="likely_out_of_scope",
-                    explanation=f"Client requested dynamic customer portal/account features, which is explicitly excluded under {matched_item.get('source_clause_id') or 'baseline terms'}.",
-                    confidence=0.90,
+                    explanation=f"Client requested dynamic customer portal/account features, which is explicitly excluded under {matched_item.get('source_clause_id') or 'baseline terms'}: '{matched_item.get('description')}'.",
+                    confidence=0.92,
                     matched_scope_item_id=matched_item.get("id"),
                     matched_clause_id=matched_item.get("source_clause_id"),
                     supporting_quote=matched_item.get("source_quote"),
@@ -378,12 +459,18 @@ class DeterministicScopeEngine:
                     estimated_extra_hours=5.0,
                     provider_source="deterministic_fallback",
                 )
-            # Check for marketing website deliverable
-            deliverable_item = next((i for i in scope_items if "marketing website" in i.get("description", "").lower() or "five-page" in i.get("description", "").lower()), None)
+            # Check for marketing / static deliverable
+            deliverable_item = next(
+                (i for i in scope_items if any(
+                    term in i.get("description", "").lower()
+                    for term in ["marketing website", "marketing portal", "five-page", "static website", "brochure", "landing page", "corporate website"]
+                )),
+                None
+            )
             if deliverable_item:
                 return RequestAnalysisResult(
                     classification="likely_out_of_scope",
-                    explanation=f"Customer order-history is a dynamic backend feature absent from the agreed marketing website scope ({deliverable_item.get('source_clause_id') or 'Clause 2.1'}).",
+                    explanation=f"Customer order-history and dynamic account features are dynamic backend functionality absent from the agreed marketing/static website scope ({deliverable_item.get('source_clause_id') or 'Clause 2.1'}).",
                     confidence=0.85,
                     matched_scope_item_id=deliverable_item.get("id"),
                     matched_clause_id=deliverable_item.get("source_clause_id"),
@@ -610,20 +697,58 @@ Output JSON format:
         if err or not data:
             logger.warning(f"Live Gemini request analysis failed ({err}); using deterministic fallback.")
             res = self.fallback.analyze_request(message_text, scope_items, default_rate)
-            fallback_note = f"Live analysis unavailable ({err}); analyzed via deterministic rules."
+            fallback_note = f"Upstream Gemini unavailable ({err}); evaluated via deterministic fallback engine."
             if res.missing_evidence_notes:
                 res.missing_evidence_notes = f"{fallback_note} | {res.missing_evidence_notes}"
             else:
                 res.missing_evidence_notes = fallback_note
+            res.provider_source = "deterministic_fallback"
             return res
 
         try:
-            # Validate grounding: ensure matched_scope_item_id actually belongs to this project
-            valid_ids = {i.get("id") for i in scope_items}
+            # Grounding resolution and verification against confirmed project baseline
+            valid_id_map = {item["id"]: item for item in scope_items if item.get("id")}
             matched_id = data.get("matched_scope_item_id")
-            if matched_id and matched_id not in valid_ids:
-                logger.warning(f"Model cited non-existent scope_item_id {matched_id}; setting to None")
-                data["matched_scope_item_id"] = None
+
+            if matched_id and matched_id in valid_id_map:
+                # Direct match by confirmed DB UUID
+                matched_item = valid_id_map[matched_id]
+                if not data.get("matched_clause_id"):
+                    data["matched_clause_id"] = matched_item.get("source_clause_id")
+                if not data.get("supporting_quote"):
+                    data["supporting_quote"] = matched_item.get("source_quote")
+                if not data.get("section_reference"):
+                    data["section_reference"] = matched_item.get("section_reference")
+            else:
+                # Model may have cited clause identifier or verbatim quote rather than DB UUID
+                resolved_item = None
+                target_clause = data.get("matched_clause_id") or matched_id
+                if target_clause:
+                    t_str = str(target_clause).strip().lower()
+                    resolved_item = next(
+                        (i for i in scope_items if i.get("source_clause_id") and i.get("source_clause_id").strip().lower() == t_str),
+                        None
+                    )
+                if not resolved_item and data.get("supporting_quote"):
+                    quote_snippet = data["supporting_quote"].strip().lower()
+                    resolved_item = next(
+                        (i for i in scope_items if i.get("source_quote") and quote_snippet in i["source_quote"].lower()),
+                        None
+                    )
+
+                if resolved_item:
+                    data["matched_scope_item_id"] = resolved_item.get("id")
+                    data["matched_clause_id"] = resolved_item.get("source_clause_id")
+                    data["supporting_quote"] = resolved_item.get("source_quote")
+                    data["section_reference"] = resolved_item.get("section_reference")
+                else:
+                    if matched_id or data.get("matched_clause_id"):
+                        logger.warning(
+                            f"Model cited ungrounded scope reference (id={matched_id}, clause={data.get('matched_clause_id')}); setting to None"
+                        )
+                    data["matched_scope_item_id"] = None
+                    data["matched_clause_id"] = None
+                    data["supporting_quote"] = None
 
             data["provider_source"] = "gemini_live"
             return RequestAnalysisResult.model_validate(data)
@@ -631,6 +756,7 @@ Output JSON format:
             logger.warning(f"Pydantic validation of Gemini response failed: {e}")
             res = self.fallback.analyze_request(message_text, scope_items, default_rate)
             res.missing_evidence_notes = f"Schema validation error: {e}"
+            res.provider_source = "deterministic_fallback"
             return res
 
 ai_engine = ScopeAIEngine()
