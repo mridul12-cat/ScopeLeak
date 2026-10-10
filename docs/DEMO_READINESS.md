@@ -18,8 +18,8 @@ ScopeLeak has completed full stabilization, financial auditing, test isolation, 
 - **Clean Demo Workspace:** All 15 duplicate test projects (`Acme Web Services Portal` and `E2E Test Project`) were permanently purged from `scopeleak.db`. Automated pytest runs are now completely isolated via session-scoped SQLite databases (`./test_isolated_suite.db`), leaving the demo database untouched.
 - **Idempotent 1-Click Seeding:** Clicking "Load Demo Project" or calling `/api/projects/demo/seed` is 100% idempotent. It completely refreshes the pristine `Northstar Website Redesign` project without creating duplicates.
 - **Audited Financial Governance:** Zero double-counting between logged work items and unlinked findings. Clear separation between estimated potential exposure, internal draft change orders, and legally secured client-accepted revenue. Native multi-currency isolation (INR and USD).
-- **Truthful AI Inference Reporting:** Real-time health check reflects whether live Gemini API (`gemini-2.5-flash`) or deterministic evidence fallback is active. Findings explicitly display `🤖 Gemini Live AI` or `⚙️ Deterministic Fallback`. Hallucinated or non-existent clause references are strictly rejected.
-- **Robust Regression Test Suite:** **22 out of 22 tests passing in 1.20s**, covering the full lifecycle, document upload validation, edge cases, financial calculations, and cross-project isolation.
+- **Truthful AI Inference Reporting:** Real-time health check reflects whether live Gemini API (`gemini-3.8-flash`) or deterministic evidence fallback is active. Findings explicitly display `🤖 Gemini Live AI` or `⚙️ Deterministic Fallback`. Hallucinated or non-existent clause references are strictly rejected.
+- **Robust Regression Test Suite:** **27 passing unit and mock tests (1 opt-in live test)**, covering the full lifecycle, document upload validation, edge cases, financial calculations, cross-project isolation, and live provider error/grounding handling.
 - **Unified Production Build:** Vite frontend compiles with 0 TypeScript errors into static assets served directly by FastAPI.
 
 ---
@@ -104,37 +104,45 @@ Configured Baseline Rate: **₹2,000 / hour** (INR)
 ## 4. Priority 3 — Real AI Verification & Truthful Fallback
 
 ### Architecture & Grounding
-- **Provider Implementation:** `backend/app/services/ai_provider.py` (`GeminiProvider`).
-- **Configured Model:** `gemini-2.5-flash` with strict structured Pydantic outputs (`BaselineExtractionResponse`, `RequestAnalysisResponse`).
+- **Provider Implementation:** `backend/app/services/ai_service.py` (`GeminiProvider`).
+- **Configured Model:** `gemini-3.8-flash` with strict structured JSON output and thinking configuration (`thinkingConfig: {"thinkingLevel": "low"}`). Legacy sampling parameters (`temperature`, `top_p`, `top_k`) have been completely removed.
+- **Header Authentication:** Credentials are sent via `x-goog-api-key` request headers to ensure the API key is never exposed in URLs, error traces, or proxy logs.
 - **Dynamic Credentials Detection:**
-  - When `GEMINI_API_KEY` is present and non-empty in environment: invokes the Google Gemini API with timeout protections (30s) and system instructions enforcing verbatim contract clause citations.
+  - When `GEMINI_API_KEY` is present and non-empty in environment: invokes the Google Gemini 3.8 Flash API with timeout protection and system instructions enforcing verbatim contract clause citations.
   - When `GEMINI_API_KEY` is absent or encounters provider rate limits/network timeouts: falls back gracefully to `DeterministicScopeEngine`.
 - **Honest Attribution:**
   - Every finding records its `provider_source`: `"gemini_live"` or `"deterministic_fallback"`.
   - The Header displays a real-time badge:
-    - 🟢 `🤖 Gemini Live (gemini-2.5-flash)` (when API key is configured)
+    - 🟢 `🤖 Gemini Live (gemini-3.8-flash)` (when API key is configured)
     - ⚪ `⚙️ Deterministic Fallback` (when operating in local offline mode)
 - **Evidence Grounding & Anti-Hallucination:**
   - AI may interpret and classify evidence; deterministic application logic validates all citations.
-  - Non-existent clause IDs or quotes that do not appear verbatim in the extracted contract baseline are rejected or flagged as unverifiable (`backend/tests/test_ai_provider.py::test_grounding_rejects_nonexistent_ids`).
+  - Non-existent clause IDs or quotes that do not appear verbatim in the extracted contract baseline are rejected or flagged as unverifiable (`backend/tests/test_ai_provider.py::test_mocked_gemini_hallucinated_clause_id_rejection`).
   - Unrelated client requests (e.g. asking about weather or server sync without scope impact) are classified as `ambiguous` with 0 estimated hours, never artificially classified as scope creep.
 
 ---
 
 ## 5. Priority 4 — End-to-End Regression & Edge Cases
 
-The complete regression test suite (`backend/tests`) passes **22 out of 22 tests**:
+The complete regression test suite (`backend/tests`) passes **27 automated tests (1 opt-in live test)**:
 
 ```
-backend/tests/test_ai_provider.py ................. PASSED (3/3)
+backend/tests/test_ai_provider.py ................. PASSED (8/8)
+  - test_default_model_and_thinking_configuration
+  - test_gemini_provider_payload_and_header_formatting
+  - test_mocked_gemini_live_success_with_thinking_parts
+  - test_mocked_gemini_api_errors_fallback
+  - test_mocked_gemini_hallucinated_clause_id_rejection
   - test_ai_provider_configuration_and_fallback
   - test_grounding_rejects_nonexistent_ids
   - test_unrelated_request_not_classified_as_creep
 
 backend/tests/test_api_e2e.py ..................... PASSED (3/3)
-  - test_health_check
+  - test_health_check (asserts gemini_model == "gemini-3.8-flash")
   - test_full_project_workflow
   - test_seed_demo_endpoint
+
+backend/tests/test_gemini_live_integration.py ..... SKIPPED (opt-in via RUN_LIVE_GEMINI_TESTS=1)
 
 backend/tests/test_change_orders.py ............... PASSED (2/2)
   - test_change_order_creation_and_versioning
@@ -301,7 +309,9 @@ cd ..
   - `ENVIRONMENT`: `production`
   - `DATABASE_URL`: `sqlite:///./scopeleak.db` (or PostgreSQL connection string `postgresql://...`)
   - `GEMINI_API_KEY`: *(Optional)* Google Gemini API Key for live AI inference. If omitted, operates automatically in deterministic fallback mode.
-  - `GEMINI_MODEL`: `gemini-2.5-flash`
+  - `GEMINI_MODEL`: `gemini-3.8-flash` (default)
+  - `GEMINI_THINKING_LEVEL`: `low` (default; supported: `low`, `medium`, `high`)
+  - `GEMINI_TIMEOUT_SECONDS`: `35.0` (default)
 
 ---
 

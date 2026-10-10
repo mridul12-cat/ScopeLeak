@@ -39,30 +39,55 @@ class RequestAnalysisResult(BaseModel):
     provider_source: str = "gemini_live"  # "gemini_live" or "deterministic_fallback"
 
 class GeminiProvider:
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        thinking_level: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ):
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.model = model or settings.GEMINI_MODEL
+        self.timeout = float(timeout or settings.GEMINI_TIMEOUT_SECONDS)
+        # Validate thinking level: supported values for gemini-3.8-flash are 'low', 'medium', 'high'; 'minimal' is unsupported
+        raw_level = (thinking_level or settings.GEMINI_THINKING_LEVEL or "low").strip().lower()
+        if raw_level in ("low", "medium", "high"):
+            self.thinking_level = raw_level
+        else:
+            self.thinking_level = "low"
         self.api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
 
     def is_configured(self) -> bool:
         return bool(self.api_key and self.api_key.strip())
 
     async def call_gemini_json(self, prompt: str, system_instruction: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """Call Gemini REST API with JSON response enforcement."""
+        """Call Gemini REST API with JSON response enforcement and thinkingConfig for Gemini 3.8 Flash."""
         if not self.is_configured():
             return None, "GEMINI_API_KEY is not configured"
 
-        url = f"{self.api_url}?key={self.api_key}"
-        payload = {
+        # Pass API key strictly in header to avoid exposing credentials in URLs or proxy logs
+        url = self.api_url
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
+
+        # Build generationConfig: remove legacy sampling parameters (temperature, top_p, top_k)
+        # Configure thinkingConfig with validated thinking level ('low', 'medium', or 'high')
+        generation_config: Dict[str, Any] = {
+            "responseMimeType": "application/json",
+            "thinkingConfig": {
+                "thinkingLevel": self.thinking_level,
+            },
+        }
+
+        payload: Dict[str, Any] = {
             "contents": [
                 {
                     "parts": [{"text": prompt}]
                 }
             ],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "temperature": 0.1,
-            }
+            "generationConfig": generation_config,
         }
         if system_instruction:
             payload["systemInstruction"] = {
@@ -70,8 +95,14 @@ class GeminiProvider:
             }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, json=payload)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload, headers=headers)
+                if response.status_code == 503:
+                    logger.info("Gemini 3.8 Flash returned 503 high demand spike; retrying once after 1.5s...")
+                    import asyncio
+                    await asyncio.sleep(1.5)
+                    response = await client.post(url, json=payload, headers=headers)
+
                 if response.status_code != 200:
                     err_msg = f"Gemini API returned status {response.status_code}: {response.text[:200]}"
                     logger.error(err_msg)
@@ -82,16 +113,38 @@ class GeminiProvider:
                 if not candidates:
                     return None, "No candidate response returned from Gemini"
 
-                part = candidates[0].get("content", {}).get("parts", [{}])[0]
-                text = part.get("text", "")
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if not parts:
+                    return None, "Empty content parts returned from Gemini"
+
+                # Extract the non-thought text part (or last text part)
+                text = ""
+                for p in parts:
+                    if not p.get("thought", False) and "text" in p:
+                        text = p["text"]
+                        break
+                if not text:
+                    text = parts[-1].get("text", "")
+
                 if not text:
                     return None, "Empty text in Gemini response"
 
-                parsed = json.loads(text)
+                # Strip possible markdown code fences if model wrapped JSON
+                cleaned_text = text.strip()
+                if cleaned_text.startswith("```"):
+                    lines = cleaned_text.splitlines()
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    cleaned_text = "\n".join(lines).strip()
+
+                parsed = json.loads(cleaned_text)
                 return parsed, None
         except httpx.RequestError as e:
-            logger.error(f"Network error calling Gemini: {e}")
-            return None, f"Network error connecting to Gemini API: {str(e)}"
+            err_detail = str(e) or type(e).__name__
+            logger.error(f"Network error calling Gemini: {err_detail}")
+            return None, f"Network error connecting to Gemini API: {err_detail}"
         except json.JSONDecodeError as e:
             logger.error(f"Malformed JSON from Gemini: {e}")
             return None, f"Malformed JSON from Gemini model: {str(e)}"
@@ -479,7 +532,11 @@ Output JSON format:
         if err or not data or "items" not in data:
             logger.warning(f"Live Gemini extraction failed ({err}); falling back to deterministic extraction.")
             res = self.fallback.extract_contract_scope(contract_text, filename)
-            res.extraction_notes = f"Live extraction attempted but fell back: {err}"
+            fallback_note = f"Live extraction attempted but fell back: {err}"
+            if res.extraction_notes:
+                res.extraction_notes = f"{fallback_note} | {res.extraction_notes}"
+            else:
+                res.extraction_notes = fallback_note
             return res
 
         try:
@@ -553,7 +610,11 @@ Output JSON format:
         if err or not data:
             logger.warning(f"Live Gemini request analysis failed ({err}); using deterministic fallback.")
             res = self.fallback.analyze_request(message_text, scope_items, default_rate)
-            res.missing_evidence_notes = f"Live analysis unavailable ({err}); analyzed via deterministic rules."
+            fallback_note = f"Live analysis unavailable ({err}); analyzed via deterministic rules."
+            if res.missing_evidence_notes:
+                res.missing_evidence_notes = f"{fallback_note} | {res.missing_evidence_notes}"
+            else:
+                res.missing_evidence_notes = fallback_note
             return res
 
         try:

@@ -10,6 +10,7 @@ def test_health_check():
     data = response.json()
     assert data["status"] == "healthy"
     assert "gemini_configured" in data
+    assert data["gemini_model"] == "gemini-3.8-flash"
 
 def test_full_project_workflow():
     # 1. Create project

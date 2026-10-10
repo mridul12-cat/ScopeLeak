@@ -27,7 +27,21 @@ class Settings:
 
     @property
     def GEMINI_MODEL(self) -> str:
-        return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        return os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
+
+    @property
+    def GEMINI_THINKING_LEVEL(self) -> str:
+        level = os.getenv("GEMINI_THINKING_LEVEL", "low").strip().lower()
+        if level in ("low", "medium", "high"):
+            return level
+        return "low"
+
+    @property
+    def GEMINI_TIMEOUT_SECONDS(self) -> float:
+        try:
+            return float(os.getenv("GEMINI_TIMEOUT_SECONDS", "35.0"))
+        except ValueError:
+            return 35.0
 
     @property
     def UPLOAD_DIR(self) -> str:
