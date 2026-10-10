@@ -9,6 +9,7 @@ from backend.app.services.ai_service import (
     DeterministicScopeEngine,
     GeminiProvider,
     RequestAnalysisResult,
+    ai_engine,
 )
 from backend.app.config import settings
 
@@ -574,3 +575,346 @@ async def test_unrelated_request_not_classified_as_creep():
         assert result.classification == "ambiguous", f"Message '{msg}' was falsely classified as {result.classification}"
         assert result.estimated_extra_hours in (0.0, None)
         assert result.matched_scope_item_id is None
+
+
+def test_parse_error_response_hard_quota_distinction():
+    """Verify GeminiProvider.parse_error_response identifies Google's exact quota exhaustion response as hard quota."""
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 429
+    mock_resp.headers = {}
+    mock_resp.text = '{"error": {"code": 429, "message": "You exceeded your current quota, please check your plan and billing details.", "status": "RESOURCE_EXHAUSTED"}}'
+    mock_resp.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "You exceeded your current quota, please check your plan and billing details. For more information, see https://cloud.google.com/docs/quota.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RESOURCE_EXHAUSTED",
+                    "domain": "googleapis.com",
+                }
+            ],
+        }
+    }
+
+    parsed = GeminiProvider.parse_error_response(mock_resp)
+    assert parsed["status_code"] == 429
+    assert parsed["status"] == "RESOURCE_EXHAUSTED"
+    assert parsed["is_hard_quota"] is True
+    assert "exceeded your current quota" in parsed["message"]
+
+
+def test_parse_error_response_temporary_rate_limit_with_retry_info():
+    """Verify parse_error_response identifies temporary rate limits with RetryInfo retryDelay."""
+    mock_resp = MagicMock(spec=httpx.Response)
+    mock_resp.status_code = 429
+    mock_resp.headers = {"Retry-After": "3"}
+    mock_resp.text = '{"error": {"code": 429, "message": "Too many requests per minute.", "status": "RESOURCE_EXHAUSTED"}}'
+    mock_resp.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "Resource has been exhausted (e.g. check quota). Too many requests per minute.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RATE_LIMIT_EXCEEDED",
+                    "domain": "googleapis.com",
+                },
+                {
+                    "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                    "retryDelay": "2.5s",
+                },
+            ],
+        }
+    }
+
+    parsed = GeminiProvider.parse_error_response(mock_resp)
+    assert parsed["status_code"] == 429
+    assert parsed["is_hard_quota"] is False
+    assert parsed["retry_delay"] == 2.5
+    assert "RATE_LIMIT_EXCEEDED" in parsed["reasons"]
+
+
+@pytest.mark.asyncio
+async def test_gemini_hard_quota_429_stops_promptly_without_retries():
+    """A confirmed quota exhaustion 429 must stop immediately on attempt 1 without retries and fall back honestly."""
+    provider = GeminiProvider(api_key="valid-mock-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "item-scope-42",
+            "item_type": "exclusion",
+            "description": "Customer accounts and order history functionality are excluded.",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included in the defined deliverables.",
+        }
+    ]
+
+    mock_429_quota = MagicMock(spec=httpx.Response)
+    mock_429_quota.status_code = 429
+    mock_429_quota.headers = {}
+    mock_429_quota.text = '{"error": {"code": 429, "message": "You exceeded your current quota, please check your plan and billing details.", "status": "RESOURCE_EXHAUSTED"}}'
+    mock_429_quota.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "You exceeded your current quota, please check your plan and billing details.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RESOURCE_EXHAUSTED",
+                }
+            ],
+        }
+    }
+
+    call_count = 0
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        return mock_429_quota
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch("asyncio.sleep", return_value=None):
+        res = await engine.analyze_request(
+            message_text="Can we also add a customer order-history page?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    # CRITICAL INVARIANT: Hard quota must stop promptly after exactly 1 attempt (NO RETRIES!)
+    assert call_count == 1
+    assert res.provider_source == "deterministic_fallback"
+    assert res.classification == "likely_out_of_scope"
+    assert res.matched_scope_item_id == "item-scope-42"
+    assert "quota exhausted / billing restriction" in (res.missing_evidence_notes or "")
+    assert "exceeded your current quota" in (res.missing_evidence_notes or "")
+
+
+@pytest.mark.asyncio
+async def test_gemini_temporary_429_retries_and_succeeds():
+    """Temporary rate limit 429 retries with delay and succeeds when attempt 2 returns 200 OK."""
+    provider = GeminiProvider(api_key="valid-mock-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "item-scope-42",
+            "item_type": "exclusion",
+            "description": "Customer accounts and order history functionality are excluded.",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included in the defined deliverables.",
+        }
+    ]
+
+    mock_429_transient = MagicMock(spec=httpx.Response)
+    mock_429_transient.status_code = 429
+    mock_429_transient.headers = {}
+    mock_429_transient.text = '{"error": {"code": 429, "message": "Rate limit exceeded. Too many requests.", "status": "RESOURCE_EXHAUSTED"}}'
+    mock_429_transient.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "Rate limit exceeded. Too many requests.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RATE_LIMIT_EXCEEDED",
+                },
+                {
+                    "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                    "retryDelay": "0.5s",
+                },
+            ],
+        }
+    }
+
+    mock_200 = MagicMock(spec=httpx.Response)
+    mock_200.status_code = 200
+    mock_200.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": json.dumps({
+                                "classification": "likely_out_of_scope",
+                                "explanation": "Order history is excluded per Exclusion 4.2.",
+                                "confidence": 0.95,
+                                "matched_scope_item_id": "item-scope-42",
+                                "matched_clause_id": "Exclusion 4.2",
+                                "supporting_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included in the defined deliverables.",
+                                "estimated_extra_hours": 5.0,
+                            })
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    call_count = 0
+    sleep_calls = []
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return mock_429_transient
+        return mock_200
+
+    async def mock_sleep(d):
+        sleep_calls.append(d)
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch("asyncio.sleep", side_effect=mock_sleep):
+        res = await engine.analyze_request(
+            message_text="Can we also add a customer order-history page?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    assert call_count == 2
+    assert len(sleep_calls) == 1
+    # Slept at least 0.5s retry delay + jitter
+    assert sleep_calls[0] >= 0.5
+    assert res.provider_source == "gemini_live"
+    assert res.classification == "likely_out_of_scope"
+    assert res.matched_scope_item_id == "item-scope-42"
+    assert res.estimated_extra_hours == 5.0
+
+
+@pytest.mark.asyncio
+async def test_gemini_persistent_temporary_429_exhausts_retries_and_falls_back():
+    """Persistent temporary 429 retries all max_attempts before falling back honestly to deterministic engine."""
+    provider = GeminiProvider(api_key="valid-mock-key")
+    engine = ScopeAIEngine()
+    engine.provider = provider
+
+    sample_scope_items = [
+        {
+            "id": "item-scope-42",
+            "item_type": "exclusion",
+            "description": "Customer accounts and order history functionality are excluded.",
+            "source_clause_id": "Exclusion 4.2",
+            "source_quote": "Customer accounts, authentication, order history, and backend portal functionality are not included in the defined deliverables.",
+        }
+    ]
+
+    mock_429_transient = MagicMock(spec=httpx.Response)
+    mock_429_transient.status_code = 429
+    mock_429_transient.headers = {}
+    mock_429_transient.text = '{"error": {"code": 429, "message": "Rate limit exceeded. Too many requests.", "status": "RESOURCE_EXHAUSTED"}}'
+    mock_429_transient.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "Rate limit exceeded. Too many requests.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RATE_LIMIT_EXCEEDED",
+                }
+            ],
+        }
+    }
+
+    call_count = 0
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        return mock_429_transient
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch("asyncio.sleep", return_value=None):
+        res = await engine.analyze_request(
+            message_text="Can we also add a customer order-history page?",
+            scope_items=sample_scope_items,
+            default_rate=2000.0,
+        )
+
+    # Invariant: retries all 4 attempts when error is temporary
+    assert call_count == 4
+    assert res.provider_source == "deterministic_fallback"
+    assert res.classification == "likely_out_of_scope"
+    assert res.matched_scope_item_id == "item-scope-42"
+    assert "rate limit exceeded after 4 attempts" in (res.missing_evidence_notes or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_api_endpoint_handles_hard_quota_gracefully():
+    """Verify that the FastAPI analyze endpoint handles Gemini hard quota 429 gracefully with deterministic fallback."""
+    from fastapi.testclient import TestClient
+    from backend.app.main import app
+
+    client = TestClient(app)
+
+    # 1. Create a test project
+    p_res = client.post("/api/projects", json={
+        "name": "Quota Test Project",
+        "client_name": "Quota Client",
+        "currency": "USD",
+        "default_hourly_rate": 150.0,
+    })
+    assert p_res.status_code == 201
+    proj_id = p_res.json()["id"]
+
+    # 2. Add an exclusion scope item
+    s_res = client.post(f"/api/projects/{proj_id}/scope", json={
+        "item_type": "exclusion",
+        "description": "Payment gateways and checkout integrations are strictly excluded.",
+        "source_clause_id": "Clause 3.1",
+        "source_quote": "Payment gateways and checkout integrations are strictly excluded.",
+        "review_status": "confirmed",
+    })
+    assert s_res.status_code == 201
+
+    # 3. Add client request
+    r_res = client.post(f"/api/projects/{proj_id}/requests", json={
+        "message_text": "Please integrate Stripe checkout with Apple Pay.",
+    })
+    assert r_res.status_code == 201
+
+    mock_429 = MagicMock(spec=httpx.Response)
+    mock_429.status_code = 429
+    mock_429.headers = {}
+    mock_429.text = '{"error": {"code": 429, "message": "You exceeded your current quota, please check your plan and billing details.", "status": "RESOURCE_EXHAUSTED"}}'
+    mock_429.json.return_value = {
+        "error": {
+            "code": 429,
+            "message": "You exceeded your current quota, please check your plan and billing details.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                    "reason": "RESOURCE_EXHAUSTED",
+                }
+            ],
+        }
+    }
+
+    call_count = 0
+
+    async def mock_post(url, json=None, headers=None):
+        nonlocal call_count
+        call_count += 1
+        return mock_429
+
+    with patch("httpx.AsyncClient.post", side_effect=mock_post), \
+         patch.object(ai_engine.provider, "api_key", "test-mock-api-key"):
+        analyze_res = client.post(f"/api/projects/{proj_id}/analyze")
+        assert analyze_res.status_code == 200
+        findings = analyze_res.json()
+        assert len(findings) >= 1
+        finding = findings[0]
+        assert finding["provider_source"] == "deterministic_fallback"
+        assert finding["classification"] == "likely_out_of_scope"
+        notes = " ".join([str(ref.get("notes") or "") for ref in finding.get("evidence_references", [])])
+        assert "quota" in notes.lower()

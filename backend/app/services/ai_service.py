@@ -63,16 +63,141 @@ class GeminiProvider:
     def is_configured(self) -> bool:
         return bool(self.api_key and self.api_key.strip())
 
+    @staticmethod
+    def _parse_duration(val: Any) -> Optional[float]:
+        """Parse duration strings like '2.5s', '10s' or numbers into seconds."""
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, str):
+            v = val.strip().lower()
+            if v.endswith("s"):
+                v = v[:-1]
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
+        return None
+
+    @staticmethod
+    def parse_error_response(response: httpx.Response) -> Dict[str, Any]:
+        """
+        Parses Google Gemini API's structured error response and HTTP headers.
+        Extracts code, status, message, detailed reasons, retryDelay, and determines
+        if the error represents hard quota exhaustion / billing restrictions vs temporary rate limiting.
+        Never exposes API keys or sensitive authorization headers.
+        """
+        status_code = response.status_code
+        error_code = status_code
+        status_str = ""
+        message = ""
+        reasons = []
+        retry_delay = None
+
+        # Check standard Retry-After header
+        retry_after_hdr = response.headers.get("Retry-After")
+        if retry_after_hdr:
+            try:
+                retry_delay = float(retry_after_hdr.strip())
+            except (ValueError, TypeError):
+                pass
+
+        # Try parsing JSON error structure
+        try:
+            body = response.json()
+            if isinstance(body, dict):
+                err = body.get("error", {})
+                if isinstance(err, dict):
+                    error_code = err.get("code", status_code)
+                    message = err.get("message", "")
+                    status_str = err.get("status", "")
+                    details = err.get("details", [])
+                    if isinstance(details, list):
+                        for detail in details:
+                            if not isinstance(detail, dict):
+                                continue
+                            dtype = str(detail.get("@type", ""))
+                            # ErrorInfo (contains reason, domain, metadata)
+                            if "ErrorInfo" in dtype:
+                                r = detail.get("reason")
+                                if r:
+                                    reasons.append(str(r))
+                            # RetryInfo (contains retryDelay duration string like '2.5s')
+                            elif "RetryInfo" in dtype:
+                                raw_delay = detail.get("retryDelay")
+                                if raw_delay is not None:
+                                    parsed_d = GeminiProvider._parse_duration(raw_delay)
+                                    if parsed_d is not None:
+                                        retry_delay = parsed_d
+                            # QuotaFailure (contains violations)
+                            elif "QuotaFailure" in dtype:
+                                violations = detail.get("violations", [])
+                                for v in violations:
+                                    if isinstance(v, dict) and v.get("description"):
+                                        reasons.append(str(v["description"]))
+        except Exception:
+            # Fallback to plain text if not valid JSON
+            message = response.text[:300] if response.text else f"HTTP {status_code}"
+
+        if not message:
+            message = response.text[:300] if response.text else f"HTTP {status_code}"
+
+        # Clean / sanitize message
+        sanitized_msg = message.replace("\n", " ").strip()
+
+        # Hard quota & billing restriction indicators
+        msg_lower = sanitized_msg.lower()
+        hard_quota_keywords = [
+            "exceeded your current quota",
+            "check your plan and billing",
+            "billing details",
+            "quota exceeded",
+            "insufficient quota",
+            "billing not enabled",
+            "account has been disabled",
+            "quota has been exhausted",
+            "daily quota",
+            "free tier quota",
+        ]
+        hard_quota_reasons = {
+            "QUOTA_EXCEEDED",
+            "BILLING_DISABLED",
+            "BILLING_NOT_FOUND",
+            "BILLING_ACCOUNT_DISABLED",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+        }
+
+        is_hard_quota = False
+        if any(kw in msg_lower for kw in hard_quota_keywords):
+            is_hard_quota = True
+        elif any(r.upper() in hard_quota_reasons for r in reasons):
+            is_hard_quota = True
+
+        return {
+            "status_code": status_code,
+            "error_code": error_code,
+            "status": status_str,
+            "message": sanitized_msg,
+            "reasons": reasons,
+            "is_hard_quota": is_hard_quota,
+            "retry_delay": retry_delay,
+        }
+
     async def call_gemini_json(self, prompt: str, system_instruction: str = "") -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
         Call Gemini REST API with JSON response enforcement and thinkingConfig for Gemini 3.8 Flash.
         Implements bounded retries with exponential backoff and jitter for transient errors:
         - HTTP 503 (High demand spikes / Service Unavailable)
-        - HTTP 429 (Rate limiting / Quota)
+        - HTTP 429 (Temporary rate limiting, respecting RetryInfo.retryDelay or Retry-After)
         - HTTP 502 / 504 (Bad Gateway / Gateway Timeout)
         - httpx.TimeoutException / httpx.ConnectError
         
-        Permanent errors (HTTP 400, 401, 403, 404, JSON decode) fail immediately without retry.
+        Permanent errors fail immediately without retrying:
+        - Confirmed quota exhaustion / billing restriction (HTTP 429 with hard quota)
+        - HTTP 400, 401, 403, 404
+        - JSON decode errors
+        
         Safely logs HTTP status and attempt counts without logging API keys or headers.
         """
         if not self.is_configured():
@@ -129,8 +254,51 @@ class GeminiProvider:
                 async with httpx.AsyncClient(timeout=req_timeout) as client:
                     response = await client.post(url, json=payload, headers=headers)
 
-                # Transient retriable HTTP statuses (503 high demand spike, 429 rate limit, 502/504 gateway)
-                if response.status_code in (503, 429, 502, 504):
+                # HTTP 429: Distinguish hard quota / billing restriction from temporary rate limit
+                if response.status_code == 429:
+                    err_info = self.parse_error_response(response)
+                    if err_info["is_hard_quota"]:
+                        # Confirmed hard quota or billing restriction -> halt retries immediately
+                        msg_snippet = err_info["message"][:180]
+                        logger.warning(
+                            f"Gemini API quota exhausted / billing restriction confirmed on attempt {attempt + 1}/{max_attempts} "
+                            f"(status={err_info['status'] or 'RESOURCE_EXHAUSTED'}, message='{msg_snippet}'). "
+                            f"Halting retries immediately to preserve responsiveness."
+                        )
+                        return None, f"Gemini API quota exhausted / billing restriction: {msg_snippet}"
+                    else:
+                        # Temporary rate limiting -> retry with bounded backoff respecting retryDelay
+                        logger.warning(
+                            f"Transient rate limit (HTTP 429) received from Gemini API on attempt {attempt + 1}/{max_attempts} "
+                            f"for model '{self.model}'. Reasons: {err_info['reasons'] or ['RATE_LIMIT_EXCEEDED']}, "
+                            f"retryDelay: {err_info['retry_delay']}s."
+                        )
+                        if attempt < max_attempts - 1:
+                            calculated_backoff = base_delay * (2 ** attempt)
+                            if err_info["retry_delay"] is not None and err_info["retry_delay"] > 0:
+                                backoff = min(max(err_info["retry_delay"], calculated_backoff), max_delay)
+                            else:
+                                backoff = min(calculated_backoff, max_delay)
+                            jitter = random.uniform(0.1, 0.4)
+                            delay = backoff + jitter
+
+                            now_elapsed = time.monotonic() - start_time
+                            if (self.timeout - now_elapsed) <= (delay + 1.0):
+                                logger.warning(
+                                    f"Insufficient time budget for retry ({self.timeout - now_elapsed:.1f}s remaining, need {delay:.1f}s). Aborting retries."
+                                )
+                                return None, f"Gemini API rate limit exceeded timeout budget ({err_info['message'][:180]})"
+
+                            logger.info(f"Retrying Gemini API in {delay:.2f}s (backoff={backoff:.1f}s, jitter={jitter:.2f}s)...")
+                            await asyncio.sleep(delay)
+                            continue
+                        else:
+                            err_msg = f"Gemini API rate limit exceeded after {max_attempts} attempts: {err_info['message'][:180]}"
+                            logger.error(err_msg)
+                            return None, err_msg
+
+                # Transient retriable HTTP server statuses (503 high demand spike, 502/504 gateway)
+                if response.status_code in (503, 502, 504):
                     logger.warning(
                         f"Transient HTTP {response.status_code} received from Gemini API on attempt {attempt + 1}/{max_attempts} "
                         f"for model '{self.model}'."

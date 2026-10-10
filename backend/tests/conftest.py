@@ -7,6 +7,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 os.environ["ENVIRONMENT"] = "testing"
 
 from backend.app.database import engine, Base, init_db
+import backend.app.models  # Ensure all SQLAlchemy models are registered on Base
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_isolated_test_database():
