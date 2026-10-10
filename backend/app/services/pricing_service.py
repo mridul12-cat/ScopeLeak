@@ -96,7 +96,7 @@ def calculate_project_financial_impact(db: Session, project: Project) -> Dict[st
             finding_cls = finding_by_request_id[item.request_id].classification
 
         # Check if unapproved work
-        if item.approval_status in ("unapproved", "pending_review"):
+        if item.approval_status != "approved":
             potential_unapproved_hours += hours
             potential_unapproved_value += line_val
 

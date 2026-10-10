@@ -242,6 +242,7 @@ def update_change_order(
     )
 
 @router.get("/api/change-orders/{change_order_id}/export")
+@router.get("/api/change-orders/{change_order_id}/pdf")
 def export_change_order_pdf(change_order_id: str, db: Session = Depends(get_db)):
     """Export change order document as a beautifully formatted PDF."""
     co = db.query(ChangeOrder).filter(ChangeOrder.id == change_order_id).first()

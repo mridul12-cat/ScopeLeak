@@ -99,6 +99,7 @@ export interface Finding {
   estimated_value?: number;
   review_status: 'pending' | 'approved' | 'dismissed' | 'uncertain';
   reviewer_notes?: string;
+  provider_source?: string;
   created_at: string;
   updated_at: string;
   decisions?: ReviewDecision[];

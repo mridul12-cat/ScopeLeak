@@ -22,6 +22,7 @@ class FindingBase(BaseModel):
     estimated_value: Optional[float] = None
     review_status: str = Field(default="pending", description="pending, approved, dismissed, uncertain")
     reviewer_notes: Optional[str] = None
+    provider_source: str = Field(default="deterministic_fallback", description="gemini_live or deterministic_fallback")
 
 class FindingUpdate(BaseModel):
     review_status: Optional[str] = None  # approved, dismissed, uncertain, pending

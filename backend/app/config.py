@@ -1,13 +1,40 @@
 import os
+from dotenv import load_dotenv
+
+# Load .env file if present
+load_dotenv()
 
 class Settings:
-    HOST: str = os.getenv("HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("PORT", "8000"))
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./scopeleak.db")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "./uploads")
-    MAX_UPLOAD_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB
+    @property
+    def HOST(self) -> str:
+        return os.getenv("HOST", "0.0.0.0")
+
+    @property
+    def PORT(self) -> int:
+        return int(os.getenv("PORT", "8000"))
+
+    @property
+    def ENVIRONMENT(self) -> str:
+        return os.getenv("ENVIRONMENT", "development")
+
+    @property
+    def DATABASE_URL(self) -> str:
+        return os.getenv("DATABASE_URL", "sqlite:///./scopeleak.db")
+
+    @property
+    def GEMINI_API_KEY(self) -> str:
+        return os.getenv("GEMINI_API_KEY", "").strip()
+
+    @property
+    def GEMINI_MODEL(self) -> str:
+        return os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+
+    @property
+    def UPLOAD_DIR(self) -> str:
+        return os.getenv("UPLOAD_DIR", "./uploads")
+
+    @property
+    def MAX_UPLOAD_SIZE_BYTES(self) -> int:
+        return 15 * 1024 * 1024  # 15 MB
 
 settings = Settings()

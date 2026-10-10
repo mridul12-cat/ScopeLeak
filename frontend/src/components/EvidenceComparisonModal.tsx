@@ -51,6 +51,15 @@ export const EvidenceComparisonModal: React.FC<Props> = ({
           <div className="flex items-center space-x-3">
             <h2 className="text-lg font-bold text-slate-900">Verifiable Scope Evidence Inspection</h2>
             <StatusBadge status={finding.classification} />
+            {finding.provider_source === 'gemini_live' ? (
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                🤖 Gemini Live AI
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200">
+                ⚙️ Deterministic Fallback
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}

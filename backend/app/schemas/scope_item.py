@@ -35,5 +35,5 @@ class ScopeItemResponse(ScopeItemBase):
     model_config = {"from_attributes": True}
 
 class BaselineBatchUpdate(BaseModel):
-    items: List[ScopeItemCreate]
+    items: List[ScopeItemCreate] = []
     confirm_all: bool = False

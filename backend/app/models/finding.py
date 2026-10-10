@@ -21,6 +21,7 @@ class Finding(Base):
     estimated_value = Column(Float, nullable=True)
     review_status = Column(String(50), default="pending", nullable=False)  # pending, approved, dismissed, uncertain
     reviewer_notes = Column(Text, nullable=True)
+    provider_source = Column(String(50), default="deterministic_fallback", nullable=False)  # gemini_live or deterministic_fallback
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

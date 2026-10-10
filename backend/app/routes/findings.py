@@ -124,6 +124,7 @@ async def analyze_requests(
                 estimated_extra_hours=est_hours,
                 estimated_value=est_val,
                 review_status="pending",
+                provider_source=analysis.provider_source,
             )
             finding.evidence_references = ev_refs
             finding.linked_work_item_ids = list(set(matched_work_ids))
@@ -135,6 +136,7 @@ async def analyze_requests(
             finding.confidence = analysis.confidence
             finding.estimated_extra_hours = est_hours
             finding.estimated_value = est_val
+            finding.provider_source = analysis.provider_source
             finding.evidence_references = ev_refs
             finding.linked_work_item_ids = list(set(matched_work_ids))
 
@@ -179,6 +181,7 @@ def list_findings(project_id: str, db: Session = Depends(get_db)):
             estimated_value=f.estimated_value,
             review_status=f.review_status,
             reviewer_notes=f.reviewer_notes,
+            provider_source=getattr(f, "provider_source", "deterministic_fallback"),
             created_at=f.created_at,
             updated_at=f.updated_at,
             decisions=f.decisions,
@@ -205,6 +208,7 @@ def get_finding(finding_id: str, db: Session = Depends(get_db)):
         estimated_value=finding.estimated_value,
         review_status=finding.review_status,
         reviewer_notes=finding.reviewer_notes,
+        provider_source=getattr(finding, "provider_source", "deterministic_fallback"),
         created_at=finding.created_at,
         updated_at=finding.updated_at,
         decisions=finding.decisions,
@@ -284,6 +288,7 @@ def update_finding_review(
         estimated_value=finding.estimated_value,
         review_status=finding.review_status,
         reviewer_notes=finding.reviewer_notes,
+        provider_source=getattr(finding, "provider_source", "deterministic_fallback"),
         created_at=finding.created_at,
         updated_at=finding.updated_at,
         decisions=finding.decisions,

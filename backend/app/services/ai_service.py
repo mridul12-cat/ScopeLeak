@@ -105,101 +105,132 @@ class DeterministicScopeEngine:
     def extract_contract_scope(contract_text: str, filename: str) -> ContractScopeExtractionResult:
         """
         Deterministic, rule-based extraction from contract text with exact clause matching.
-        Explicitly marked as deterministic fallback.
+        Parses actual sections and clauses directly from the input text, extracting
+        verbatim quotes from contract_text so all evidence is verifiably grounded.
         """
-        lines = contract_text.splitlines()
+        lines = [line.strip() for line in contract_text.splitlines() if line.strip()]
         items: List[ExtractedScopeItem] = []
+        current_section: Optional[str] = None
 
-        # Heuristic rules for Scope items
-        text_lower = contract_text.lower()
-        
-        # Payment or checkout
-        if "payment" in text_lower or "checkout" in text_lower or "stripe" in text_lower:
-            items.append(ExtractedScopeItem(
-                item_type="exclusion",
-                description="Payment gateway integration and checkout processing are excluded from the initial scope.",
-                normalized_description="Payment integration explicitly excluded",
-                source_clause_id="Exclusion 4.1",
-                source_quote="Payment gateway integration, merchant onboarding, and checkout workflows are strictly out of scope.",
-                section_reference="Section 4 - Exclusions",
-                page_number=1,
-            ))
+        clause_regex = re.compile(
+            r'^(?:(?:(?:Section|Clause|Article|Exclusion|Deliverable|Item)\s*([\d\.]+)|([\d\.]+[\d\.]*))\s*[:\.\-]?\s*)(.*)$',
+            re.IGNORECASE
+        )
+        section_regex = re.compile(
+            r'^(?:(?:\d+[\.:]|\bSection|\bClause|\bArticle|\bSchedule)\s*[\d\.]*[:\.\-]?\s*)([A-Za-z0-9\s&/,\-]+)$',
+            re.IGNORECASE
+        )
 
-        # Revisions
-        if "revision" in text_lower or "round" in text_lower:
-            items.append(ExtractedScopeItem(
-                item_type="revision_limit",
-                description="Up to two (2) rounds of revisions included for design and copywriting.",
-                normalized_description="Two rounds of revisions",
-                source_clause_id="Clause 3.2",
-                source_quote="Contract includes up to two rounds of design revisions. Additional rounds will be billed at standard hourly rates.",
-                section_reference="Section 3 - Terms & Deliverables",
-                page_number=1,
-            ))
+        for line in lines:
+            # Check for section header
+            sec_match = section_regex.match(line)
+            if sec_match and len(line) < 80 and not line.endswith("."):
+                current_section = line
+                continue
 
-        # Responsive design
-        if "responsive" in text_lower or "mobile" in text_lower:
-            items.append(ExtractedScopeItem(
-                item_type="deliverable",
-                description="Responsive layout supporting standard mobile and desktop viewports.",
-                normalized_description="Responsive design",
-                source_clause_id="Clause 2.2",
-                source_quote="All website templates shall be responsive and verified on current mobile and desktop screen sizes.",
-                section_reference="Section 2 - Deliverables",
-                page_number=1,
-            ))
+            # Check for numbered clause
+            c_match = clause_regex.match(line)
+            if c_match:
+                clause_num = c_match.group(1) or c_match.group(2)
+                body = c_match.group(3).strip()
 
-        # Five page marketing site
-        if "page" in text_lower or "marketing" in text_lower:
-            items.append(ExtractedScopeItem(
-                item_type="deliverable",
-                description="Five-page marketing website (Home, About, Services, Case Studies, Contact).",
-                normalized_description="Five-page marketing website",
-                source_clause_id="Clause 2.1",
-                source_quote="Delivery of a five-page marketing website comprising Home, About, Services, Case Studies, and Contact.",
-                section_reference="Section 2 - Deliverables",
-                page_number=1,
-            ))
+                # Determine clause label
+                if re.match(r'^(Section|Clause|Article|Exclusion|Deliverable|Item)', line, re.IGNORECASE):
+                    prefix = line.split()[0].capitalize()
+                    source_clause_id = f"{prefix} {clause_num}"
+                else:
+                    source_clause_id = f"Clause {clause_num}"
 
-        # Contact form
-        if "contact" in text_lower or "form" in text_lower:
-            items.append(ExtractedScopeItem(
-                item_type="deliverable",
-                description="Basic contact form with email submission notifications.",
-                normalized_description="Basic contact form",
-                source_clause_id="Clause 2.3",
-                source_quote="Basic contact form capturing visitor inquiries with direct email notification routing.",
-                section_reference="Section 2 - Deliverables",
-                page_number=1,
-            ))
+                # Extract title and quote
+                if ":" in body:
+                    title, desc_body = body.split(":", 1)
+                    title = title.strip()
+                    desc_body = desc_body.strip()
+                    normalized_desc = title
+                    description = f"{title}: {desc_body}" if desc_body else title
+                    # verbatim quote is the actual text
+                    source_quote = desc_body if desc_body else body
+                else:
+                    normalized_desc = body[:50]
+                    description = body
+                    source_quote = body
 
-        # Commercial terms
-        if "rate" in text_lower or "inr" in text_lower or "hour" in text_lower or "payment" in text_lower:
-            items.append(ExtractedScopeItem(
-                item_type="commercial_term",
-                description="Additional approved work shall be billed at ₹2,000 per hour with 14-day payment terms.",
-                normalized_description="Commercial rates & billing terms",
-                source_clause_id="Clause 5.1",
-                source_quote="Any additional work outside agreed deliverables shall be billed at the agreed hourly rate of ₹2,000.",
-                section_reference="Section 5 - Commercial Terms",
-                page_number=1,
-            ))
+                line_lower = (line + " " + (current_section or "")).lower()
+                if any(w in line_lower for w in ["exclusion", "out of scope", "strictly out of scope", "not included", "prohibited", "strictly excluded"]):
+                    item_type = "exclusion"
+                elif any(w in line_lower for w in ["revision", "revision round", "feedback round", "rounds of revision"]):
+                    item_type = "revision_limit"
+                elif any(w in line_lower for w in ["rate", "commercial", "hourly", "inr", "usd", "payment terms", "deposit", "billing"]):
+                    item_type = "commercial_term"
+                elif any(w in line_lower for w in ["milestone", "timeline", "schedule"]):
+                    item_type = "milestone"
+                else:
+                    item_type = "deliverable"
 
+                items.append(ExtractedScopeItem(
+                    item_type=item_type,
+                    description=description,
+                    normalized_description=normalized_desc,
+                    source_clause_id=source_clause_id,
+                    source_quote=source_quote,
+                    section_reference=current_section or "Contract Scope",
+                    page_number=1,
+                ))
+
+        # Fallback if no structured numbered clauses were detected
+        if not items:
+            text_lower = contract_text.lower()
+            sentences = [s.strip() for s in re.split(r'[.\n]+', contract_text) if len(s.strip()) > 15]
+
+            for s in sentences:
+                s_lower = s.lower()
+                if any(w in s_lower for w in ["excluded", "out of scope", "not included"]):
+                    items.append(ExtractedScopeItem(
+                        item_type="exclusion",
+                        description=s,
+                        normalized_description="Excluded feature",
+                        source_clause_id="Exclusion",
+                        source_quote=s,
+                        section_reference="Exclusions",
+                        page_number=1,
+                    ))
+                elif any(w in s_lower for w in ["revision", "round"]):
+                    items.append(ExtractedScopeItem(
+                        item_type="revision_limit",
+                        description=s,
+                        normalized_description="Revision limit",
+                        source_clause_id="Revision Terms",
+                        source_quote=s,
+                        section_reference="Terms",
+                        page_number=1,
+                    ))
+                elif any(w in s_lower for w in ["deliver", "deliverable", "website", "application", "portal", "responsive"]):
+                    items.append(ExtractedScopeItem(
+                        item_type="deliverable",
+                        description=s,
+                        normalized_description="Agreed deliverable",
+                        source_clause_id="Deliverables",
+                        source_quote=s,
+                        section_reference="Deliverables",
+                        page_number=1,
+                    ))
+
+        # Default fallback if contract text is entirely unstructured
         if not items:
             items.append(ExtractedScopeItem(
                 item_type="deliverable",
                 description="General software development deliverables as specified in agreement.",
                 normalized_description="General scope deliverable",
                 source_clause_id="Clause 1.0",
-                source_quote=contract_text[:120],
-                section_reference="Section 1",
+                source_quote=contract_text[:120].strip(),
+                section_reference="General Terms",
                 page_number=1,
             ))
 
         return ContractScopeExtractionResult(
             items=items,
-            summary="Deterministic baseline extraction performed based on contract text keywords and standard clauses.",
-            extraction_notes="Extracted via deterministic fallback engine because live Gemini model key was not used or in offline mode."
+            summary=f"Extracted {len(items)} baseline scope items directly from {filename} text.",
+            extraction_notes="Extracted via deterministic grounded parser with verbatim quotes from contract text."
         )
 
     @staticmethod
@@ -211,100 +242,174 @@ class DeterministicScopeEngine:
         """
         Deterministic, rule-based classification against project scope items.
         Returns verifiable evidence references and explicit confidence.
+        Never fabricates nonexistent clauses or IDs.
         """
         msg_lower = message_text.lower()
 
-        # 1. Stripe / Payment Checkout
-        if any(term in msg_lower for term in ["stripe", "payment", "checkout", "credit card", "gateway", "razorpay"]):
-            # Look for an exclusion scope item
-            matched_item = next((i for i in scope_items if i.get("item_type") == "exclusion" or "payment" in i.get("description", "").lower()), None)
-            quote = matched_item.get("source_quote") if matched_item else "Payment gateway integration, merchant onboarding, and checkout workflows are strictly out of scope."
-            clause = matched_item.get("source_clause_id") if matched_item else "Exclusion 4.1"
-            sec = matched_item.get("section_reference") if matched_item else "Section 4 - Exclusions"
-            page = matched_item.get("page_number", 1) if matched_item else 1
-            item_id = matched_item.get("id") if matched_item else None
+        # 1. Unrelated / Conversational messages:
+        # Check if the message is general talk, greetings, or off-topic without technical keywords
+        conversational_phrases = ["weather", "how are you", "hello", "hi there", "good morning", "good afternoon", "coffee", "lunch", "meeting time", "call tomorrow", "when is our sync"]
+        tech_keywords = ["stripe", "payment", "checkout", "card", "gateway", "bug", "fix", "nav", "mobile", "button", "color", "design", "page", "portal", "api", "auth", "login", "feature", "build", "create", "database", "backend", "frontend", "form", "revision"]
+        
+        is_conversational = any(p in msg_lower for p in conversational_phrases)
+        has_tech_keyword = any(k in msg_lower for k in tech_keywords)
 
+        if is_conversational and not has_tech_keyword:
             return RequestAnalysisResult(
-                classification="likely_out_of_scope",
-                explanation="Client requested payment/checkout integration. Contract Section 4.1 explicitly excludes payment gateways and checkout workflows from the agreed baseline.",
+                classification="ambiguous",
+                explanation=f"Client message '{message_text}' is an unrelated communication or general question that does not request technical features or modify contract scope.",
                 confidence=0.95,
-                matched_scope_item_id=item_id,
-                matched_clause_id=clause,
-                supporting_quote=quote,
-                section_reference=sec,
-                page_number=page,
-                estimated_extra_hours=8.0,
-                provider_source="deterministic_fallback",
-            )
-
-        # 2. Customer Order History / User Accounts
-        if any(term in msg_lower for term in ["order history", "order-history", "user account", "login", "portal", "customer portal"]):
-            matched_item = next((i for i in scope_items if "marketing website" in i.get("description", "").lower() or i.get("item_type") == "deliverable"), None)
-            quote = matched_item.get("source_quote") if matched_item else "Delivery of a five-page marketing website comprising Home, About, Services, Case Studies, and Contact."
-            clause = matched_item.get("source_clause_id") if matched_item else "Clause 2.1"
-            sec = matched_item.get("section_reference") if matched_item else "Section 2 - Deliverables"
-            page = matched_item.get("page_number", 1) if matched_item else 1
-            item_id = matched_item.get("id") if matched_item else None
-
-            return RequestAnalysisResult(
-                classification="likely_out_of_scope",
-                explanation="Customer order-history is a dynamic backend application feature requiring user authentication and database models, which is absent from the five-page static marketing scope.",
-                confidence=0.90,
-                matched_scope_item_id=item_id,
-                matched_clause_id=clause,
-                supporting_quote=quote,
-                section_reference=sec,
-                page_number=page,
-                estimated_extra_hours=5.0,
-                provider_source="deterministic_fallback",
-            )
-
-        # 3. Mobile Navigation Bug Fix
-        if any(term in msg_lower for term in ["mobile nav", "mobile navigation", "overlap", "responsive", "bug", "fix"]):
-            matched_item = next((i for i in scope_items if "responsive" in i.get("description", "").lower()), None)
-            quote = matched_item.get("source_quote") if matched_item else "All website templates shall be responsive and verified on current mobile and desktop screen sizes."
-            clause = matched_item.get("source_clause_id") if matched_item else "Clause 2.2"
-            sec = matched_item.get("section_reference") if matched_item else "Section 2 - Deliverables"
-            page = matched_item.get("page_number", 1) if matched_item else 1
-            item_id = matched_item.get("id") if matched_item else None
-
-            return RequestAnalysisResult(
-                classification="likely_in_scope",
-                explanation="Fixing overlapping navigation on mobile devices is covered under the agreed deliverable for responsive layout across screen sizes (Clause 2.2).",
-                confidence=0.85,
-                matched_scope_item_id=item_id,
-                matched_clause_id=clause,
-                supporting_quote=quote,
-                section_reference=sec,
-                page_number=page,
+                matched_scope_item_id=None,
+                matched_clause_id=None,
+                supporting_quote=None,
+                section_reference=None,
+                page_number=None,
+                missing_evidence_notes="Not a technical project scope change request.",
                 estimated_extra_hours=0.0,
                 provider_source="deterministic_fallback",
             )
 
-        # 4. Button Color / Small Styling Adjustment
-        if any(term in msg_lower for term in ["color", "button", "blue", "styling", "font", "css"]):
-            matched_item = next((i for i in scope_items if i.get("item_type") == "revision_limit" or "revision" in i.get("description", "").lower()), None)
-            quote = matched_item.get("source_quote") if matched_item else "Contract includes up to two rounds of design revisions. Additional rounds will be billed at standard hourly rates."
-            clause = matched_item.get("source_clause_id") if matched_item else "Clause 3.2"
-            sec = matched_item.get("section_reference") if matched_item else "Section 3 - Terms & Deliverables"
-            page = matched_item.get("page_number", 1) if matched_item else 1
-            item_id = matched_item.get("id") if matched_item else None
+        # 2. Stripe / Payment Checkout
+        if any(term in msg_lower for term in ["stripe", "payment", "checkout", "credit card", "gateway", "razorpay", "paypal"]):
+            # Look for an exclusion scope item matching payment
+            matched_item = next(
+                (i for i in scope_items if i.get("item_type") == "exclusion" and any(t in (i.get("description", "") + " " + (i.get("source_quote") or "")).lower() for t in ["payment", "stripe", "checkout", "card", "gateway", "e-commerce", "ecommerce", "merchant"])),
+                None
+            )
+            if matched_item:
+                return RequestAnalysisResult(
+                    classification="likely_out_of_scope",
+                    explanation=f"Client requested payment/checkout integration. Contract {matched_item.get('source_clause_id') or 'clause'} explicitly excludes this: '{matched_item.get('description')}'.",
+                    confidence=0.95,
+                    matched_scope_item_id=matched_item.get("id"),
+                    matched_clause_id=matched_item.get("source_clause_id"),
+                    supporting_quote=matched_item.get("source_quote"),
+                    section_reference=matched_item.get("section_reference"),
+                    page_number=matched_item.get("page_number", 1),
+                    estimated_extra_hours=8.0,
+                    provider_source="deterministic_fallback",
+                )
+            else:
+                # No payment exclusion found in baseline! Check deliverables or mark ambiguous
+                return RequestAnalysisResult(
+                    classification="ambiguous",
+                    explanation="Client requested payment/checkout functionality, but the confirmed baseline contains neither an inclusion deliverable nor an explicit exclusion clause for payment gateways.",
+                    confidence=0.60,
+                    matched_scope_item_id=None,
+                    matched_clause_id=None,
+                    supporting_quote=None,
+                    section_reference=None,
+                    page_number=None,
+                    missing_evidence_notes="No matching contract clause or exclusion found in project baseline; human clarification required.",
+                    estimated_extra_hours=None,
+                    provider_source="deterministic_fallback",
+                )
 
+        # 3. Customer Order History / Dynamic User Portals
+        if any(term in msg_lower for term in ["order history", "order-history", "user account", "login", "portal", "customer portal", "authentication", "dashboard"]):
+            # Check for exclusion first
+            matched_item = next(
+                (i for i in scope_items if i.get("item_type") == "exclusion" and any(t in (i.get("description", "") + " " + (i.get("source_quote") or "")).lower() for t in ["portal", "account", "history", "login", "user"])),
+                None
+            )
+            if matched_item:
+                return RequestAnalysisResult(
+                    classification="likely_out_of_scope",
+                    explanation=f"Client requested dynamic customer portal/account features, which is explicitly excluded under {matched_item.get('source_clause_id') or 'baseline terms'}.",
+                    confidence=0.90,
+                    matched_scope_item_id=matched_item.get("id"),
+                    matched_clause_id=matched_item.get("source_clause_id"),
+                    supporting_quote=matched_item.get("source_quote"),
+                    section_reference=matched_item.get("section_reference"),
+                    page_number=matched_item.get("page_number", 1),
+                    estimated_extra_hours=5.0,
+                    provider_source="deterministic_fallback",
+                )
+            # Check for marketing website deliverable
+            deliverable_item = next((i for i in scope_items if "marketing website" in i.get("description", "").lower() or "five-page" in i.get("description", "").lower()), None)
+            if deliverable_item:
+                return RequestAnalysisResult(
+                    classification="likely_out_of_scope",
+                    explanation=f"Customer order-history is a dynamic backend feature absent from the agreed marketing website scope ({deliverable_item.get('source_clause_id') or 'Clause 2.1'}).",
+                    confidence=0.85,
+                    matched_scope_item_id=deliverable_item.get("id"),
+                    matched_clause_id=deliverable_item.get("source_clause_id"),
+                    supporting_quote=deliverable_item.get("source_quote"),
+                    section_reference=deliverable_item.get("section_reference"),
+                    page_number=deliverable_item.get("page_number", 1),
+                    estimated_extra_hours=5.0,
+                    provider_source="deterministic_fallback",
+                )
             return RequestAnalysisResult(
                 classification="ambiguous",
-                explanation="Changing the button color is a minor design tweak that is included if within the 2 agreed revision rounds, but billable if revision rounds have already been exhausted.",
+                explanation="Client requested customer portal/accounts, but no matching deliverable or exclusion clause exists in the baseline.",
+                confidence=0.55,
+                matched_scope_item_id=None,
+                matched_clause_id=None,
+                supporting_quote=None,
+                missing_evidence_notes="Contract lacks explicit language addressing customer portals.",
+                estimated_extra_hours=None,
+                provider_source="deterministic_fallback",
+            )
+
+        # 4. Mobile Navigation Bug Fix / Responsive Layout
+        if any(term in msg_lower for term in ["mobile nav", "mobile navigation", "overlap", "responsive", "bug", "fix", "mobile screen"]):
+            matched_item = next((i for i in scope_items if "responsive" in i.get("description", "").lower() or "mobile" in i.get("description", "").lower()), None)
+            if matched_item:
+                return RequestAnalysisResult(
+                    classification="likely_in_scope",
+                    explanation=f"Fixing overlapping navigation on mobile devices is covered under the agreed deliverable for responsive layout across screen sizes ({matched_item.get('source_clause_id') or 'Clause 2.2'}).",
+                    confidence=0.85,
+                    matched_scope_item_id=matched_item.get("id"),
+                    matched_clause_id=matched_item.get("source_clause_id"),
+                    supporting_quote=matched_item.get("source_quote"),
+                    section_reference=matched_item.get("section_reference"),
+                    page_number=matched_item.get("page_number", 1),
+                    estimated_extra_hours=0.0,
+                    provider_source="deterministic_fallback",
+                )
+            return RequestAnalysisResult(
+                classification="ambiguous",
+                explanation="Client requested mobile navigation fix, but responsive deliverables are not explicitly specified in the baseline.",
                 confidence=0.60,
-                matched_scope_item_id=item_id,
-                matched_clause_id=clause,
-                supporting_quote=quote,
-                section_reference=sec,
-                page_number=page,
-                missing_evidence_notes="Requires verifying whether the client has already used both agreed revision cycles.",
+                matched_scope_item_id=None,
+                matched_clause_id=None,
+                supporting_quote=None,
+                missing_evidence_notes="No responsive deliverable explicitly found in project baseline.",
+                estimated_extra_hours=None,
+                provider_source="deterministic_fallback",
+            )
+
+        # 5. Button Color / Small Styling Adjustment
+        if any(term in msg_lower for term in ["color", "button", "blue", "styling", "font", "css"]):
+            matched_item = next((i for i in scope_items if i.get("item_type") == "revision_limit" or "revision" in i.get("description", "").lower()), None)
+            if matched_item:
+                return RequestAnalysisResult(
+                    classification="ambiguous",
+                    explanation=f"Changing styling is covered if within agreed revision rounds ({matched_item.get('source_clause_id') or 'Clause 3.2'}), but billable if revision rounds have been exhausted.",
+                    confidence=0.60,
+                    matched_scope_item_id=matched_item.get("id"),
+                    matched_clause_id=matched_item.get("source_clause_id"),
+                    supporting_quote=matched_item.get("source_quote"),
+                    section_reference=matched_item.get("section_reference"),
+                    page_number=matched_item.get("page_number", 1),
+                    missing_evidence_notes="Requires verifying whether the client has already used both agreed revision cycles.",
+                    estimated_extra_hours=0.5,
+                    provider_source="deterministic_fallback",
+                )
+            return RequestAnalysisResult(
+                classification="ambiguous",
+                explanation="Minor design tweak submitted, but contract contains no explicit revision limit clause.",
+                confidence=0.55,
+                matched_scope_item_id=None,
+                matched_clause_id=None,
+                supporting_quote=None,
+                missing_evidence_notes="Contract lacks explicit revision limit terms.",
                 estimated_extra_hours=0.5,
                 provider_source="deterministic_fallback",
             )
 
-        # Generic / Unknown request
+        # 6. Generic / Unknown request (e.g. "Can you build a native VR game?")
         return RequestAnalysisResult(
             classification="ambiguous",
             explanation=f"Request '{message_text}' cannot be definitively mapped to baseline deliverables or exclusions without additional details.",
