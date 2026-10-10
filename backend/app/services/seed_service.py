@@ -20,16 +20,16 @@ def seed_demo_project(db: Session, force_reset: bool = False) -> Project:
     Seed the Northstar Website Redesign demo project with contracts, baseline scope items,
     incoming client messages, work logs, AI evidence findings, and audit history.
     """
-    existing = db.query(Project).filter(
-        Project.name == DEMO_PROJECT_NAME,
-        Project.client_name == DEMO_CLIENT_NAME
-    ).first()
+    existing_projects = db.query(Project).filter(
+        (Project.name == DEMO_PROJECT_NAME) | (Project.client_name == DEMO_CLIENT_NAME)
+    ).all()
 
-    if existing:
+    if existing_projects:
         if not force_reset:
-            return existing
-        # Delete existing to recreate cleanly
-        db.delete(existing)
+            return existing_projects[0]
+        # Delete all existing demo copies to recreate cleanly
+        for p in existing_projects:
+            db.delete(p)
         db.commit()
 
     now = datetime.utcnow()

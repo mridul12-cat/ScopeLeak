@@ -9,6 +9,7 @@ interface Props {
   onRefresh: () => void;
   isLoading: boolean;
   onLoadDemo: () => void;
+  healthStatus?: HealthStatus | null;
 }
 
 export const Header: React.FC<Props> = ({
@@ -18,6 +19,7 @@ export const Header: React.FC<Props> = ({
   onRefresh,
   isLoading,
   onLoadDemo,
+  healthStatus,
 }) => {
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between flex-shrink-0 z-10">
@@ -27,6 +29,23 @@ export const Header: React.FC<Props> = ({
       </div>
 
       <div className="flex items-center space-x-4">
+        {/* AI Engine Status Badge */}
+        {healthStatus && (
+          <div className="hidden lg:flex items-center">
+            {healthStatus.gemini_configured ? (
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold rounded-lg shadow-sm" title={`Active model: ${healthStatus.gemini_model}`}>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>🤖 Gemini Live ({healthStatus.gemini_model})</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-600 text-xs font-semibold rounded-lg shadow-sm" title="Zero hallucinated quotes — strictly grounded deterministic evidence">
+                <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                <span>⚙️ Deterministic Fallback</span>
+              </span>
+            )}
+          </div>
+        )}
+
         {currentProject && (
           <div className="hidden sm:flex items-center space-x-3 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
             <div className="flex items-center text-slate-700 font-medium">

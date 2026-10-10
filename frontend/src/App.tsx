@@ -327,6 +327,7 @@ export const App: React.FC = () => {
           onRefresh={() => currentProject && loadProjectData(currentProject.id)}
           isLoading={isLoading}
           onLoadDemo={handleLoadDemo}
+          healthStatus={health}
         />
 
         {/* Global Error Banner */}

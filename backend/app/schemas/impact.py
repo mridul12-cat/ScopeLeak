@@ -23,4 +23,7 @@ class FinancialImpactResponse(BaseModel):
     accepted_by_client_value: float
     estimated_revenue_at_risk: float
     items_with_missing_rates_count: int
+    pending_findings_count: int = 0
+    pending_findings_hours: float = 0.0
+    pending_findings_value: float = 0.0
     breakdown: List[WorkItemBreakdown]

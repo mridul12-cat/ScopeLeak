@@ -44,14 +44,25 @@ def calculate_change_order_totals(
 
 def calculate_project_financial_impact(db: Session, project: Project) -> Dict[str, Any]:
     """
-    Calculate transparent, deduplicated financial metrics for a project:
-    - Potential unapproved-work hours
-    - Potential unapproved-work value (from unapproved work items and approved findings)
-    - Draft change-order value
-    - Approved-by-freelancer value
-    - Accepted-by-client value
-    - Revenue at risk
-    - Per-item breakdown with source and hours type
+    Calculate transparent, deduplicated financial governance metrics for a project:
+    
+    INCLUSION & EXCLUSION RULES:
+    1. Unapproved Work:
+       - Any WorkItem where approval_status != 'approved' contributes to potential_unapproved_hours
+         and potential_unapproved_value.
+       - Any Finding flagged likely_out_of_scope or approved by developer that has estimated hours
+         is included ONLY IF not already accounted for by a logged WorkItem (deduplicated by
+         both linked_work_item_ids and request_id).
+    2. Change Orders:
+       - Draft: status in ('draft', 'ready_for_review')
+       - Freelancer Approved (Sent): status in ('approved_by_freelancer', 'sent')
+       - Client Accepted: status == 'accepted_by_client' (legally locked addendums)
+    3. Revenue at Risk:
+       - Defined deterministically as: max(0.0, potential_unapproved_value - accepted_by_client_value)
+    4. Pending Findings:
+       - Tracks unreviewed findings requiring developer attention before change-order drafting.
+    5. Currency Isolation:
+       - All rates and line totals are strictly computed in the project's native currency (e.g. INR or USD).
     """
     default_rate = float(project.default_hourly_rate or 0.0)
     currency = project.currency or "INR"
@@ -68,11 +79,15 @@ def calculate_project_financial_impact(db: Session, project: Project) -> Dict[st
     items_with_missing_rates = 0
     breakdown = []
 
-    # Keep track of work items counted to avoid double-counting
+    # Keep track of work items and requests counted to strictly prevent double-counting
     accounted_work_ids = set()
+    accounted_request_ids = set()
 
     for item in work_items:
         accounted_work_ids.add(item.id)
+        if item.request_id:
+            accounted_request_ids.add(item.request_id)
+
         effective_rate = item.hourly_rate if item.hourly_rate is not None else default_rate
         if item.hourly_rate is None and default_rate == 0:
             items_with_missing_rates += 1
@@ -116,28 +131,30 @@ def calculate_project_financial_impact(db: Session, project: Project) -> Dict[st
     # Also include findings that have estimated extra hours but no work items attached yet
     for f in findings:
         if (f.classification == "likely_out_of_scope" or f.review_status == "approved") and f.estimated_extra_hours:
-            linked_ids = set(f.linked_work_item_ids)
-            # If none of its linked work items are accounted for
-            if not linked_ids.intersection(accounted_work_ids):
-                f_hours = float(f.estimated_extra_hours or 0.0)
-                f_rate = default_rate
-                f_val = calculate_line_item(f_hours, f_rate)
-                # Only add if pending or approved
-                if f.review_status in ("pending", "approved"):
-                    potential_unapproved_hours += f_hours
-                    potential_unapproved_value += f_val
-                    breakdown.append({
-                        "id": f"finding-{f.id}",
-                        "description": f"[Finding] {f.explanation[:80]}...",
-                        "hours": f_hours,
-                        "hours_type": "estimated",
-                        "hourly_rate": f_rate,
-                        "line_total": f_val,
-                        "approval_status": "unapproved",
-                        "work_status": "planned",
-                        "linked_request_id": f.request_id,
-                        "finding_classification": f.classification,
-                    })
+            linked_ids = set(f.linked_work_item_ids or [])
+            # Deduplication: If already accounted for via work items or request_id, skip to prevent double counting
+            if linked_ids.intersection(accounted_work_ids) or (f.request_id and f.request_id in accounted_request_ids):
+                continue
+
+            f_hours = float(f.estimated_extra_hours or 0.0)
+            f_rate = default_rate
+            f_val = calculate_line_item(f_hours, f_rate)
+            # Only add if pending or approved
+            if f.review_status in ("pending", "approved"):
+                potential_unapproved_hours += f_hours
+                potential_unapproved_value += f_val
+                breakdown.append({
+                    "id": f"finding-{f.id}",
+                    "description": f"[Finding] {f.explanation[:80]}...",
+                    "hours": f_hours,
+                    "hours_type": "estimated",
+                    "hourly_rate": f_rate,
+                    "line_total": f_val,
+                    "approval_status": "unapproved",
+                    "work_status": "planned",
+                    "linked_request_id": f.request_id,
+                    "finding_classification": f.classification,
+                })
 
     # Fetch Change Orders
     change_orders = db.query(ChangeOrder).filter(ChangeOrder.project_id == project.id).all()
@@ -153,6 +170,18 @@ def calculate_project_financial_impact(db: Session, project: Project) -> Dict[st
         elif co.status == "accepted_by_client":
             accepted_client_value += float(co.total or 0.0)
 
+    # Pending findings metrics
+    pending_findings_count = 0
+    pending_findings_hours = 0.0
+    pending_findings_value = 0.0
+    for f in findings:
+        if f.review_status == "pending":
+            pending_findings_count += 1
+            if f.estimated_extra_hours and f.estimated_extra_hours > 0:
+                h = float(f.estimated_extra_hours)
+                pending_findings_hours += h
+                pending_findings_value += calculate_line_item(h, default_rate)
+
     revenue_at_risk = round(max(0.0, potential_unapproved_value - accepted_client_value), 2)
 
     return {
@@ -165,5 +194,8 @@ def calculate_project_financial_impact(db: Session, project: Project) -> Dict[st
         "accepted_by_client_value": round(accepted_client_value, 2),
         "estimated_revenue_at_risk": revenue_at_risk,
         "items_with_missing_rates_count": items_with_missing_rates,
+        "pending_findings_count": pending_findings_count,
+        "pending_findings_hours": round(pending_findings_hours, 2),
+        "pending_findings_value": round(pending_findings_value, 2),
         "breakdown": breakdown,
     }

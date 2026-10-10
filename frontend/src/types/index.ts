@@ -158,6 +158,9 @@ export interface FinancialImpact {
   accepted_by_client_value: number;
   estimated_revenue_at_risk: number;
   items_with_missing_rates_count: number;
+  pending_findings_count?: number;
+  pending_findings_hours?: number;
+  pending_findings_value?: number;
   breakdown: WorkItemBreakdown[];
 }
 
