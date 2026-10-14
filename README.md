@@ -134,6 +134,25 @@ Open **[http://localhost:8000](http://localhost:8000)** in your browser!
 
 *(For hot-reloading frontend development, run `cd frontend && npm run dev` and open `http://localhost:5173`.)*
 
+### Gemini API Key (Recommended for Local Development)
+
+ScopeLeak uses the Google Gemini API to analyze client requests against contract scope. The shared API configuration may encounter **rate limits or quota exhaustion**, which can temporarily interrupt live AI analysis.
+
+For the best experience when running ScopeLeak locally, configure **your own Gemini API key**:
+
+1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey).
+2. Add it to your local environment file (`.env`):
+
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+
+3. Restart the backend so the new environment variable takes effect.
+
+**Important:** Keep your API key private. Never commit your `.env` file or expose your key in screenshots, logs, or public repositories. Gemini API usage is subject to Google's quotas and rate limits.
+
+If the live Gemini API is unavailable or quota-limited, ScopeLeak may use its deterministic fallback where supported.
+
 ---
 
 ## 6. Synthetic Demo Project (Northstar Studio)
