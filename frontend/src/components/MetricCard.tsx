@@ -17,35 +17,35 @@ export const MetricCard: React.FC<Props> = ({
   badge,
   variant = 'default',
 }) => {
-  let borderClass = 'border-slate-200';
-  let badgeColor = 'bg-slate-100 text-slate-700';
+  let borderClass = 'border-zinc-800';
+  let badgeColor = 'bg-zinc-800 text-zinc-300 border border-zinc-700';
 
   if (variant === 'danger') {
-    borderClass = 'border-rose-200 bg-rose-50/20';
-    badgeColor = 'bg-rose-100 text-rose-800';
+    borderClass = 'border-rose-900/50 bg-rose-950/20';
+    badgeColor = 'bg-rose-950/70 text-rose-300 border border-rose-800/60';
   } else if (variant === 'success') {
-    borderClass = 'border-emerald-200 bg-emerald-50/20';
-    badgeColor = 'bg-emerald-100 text-emerald-800';
+    borderClass = 'border-emerald-900/50 bg-emerald-950/20';
+    badgeColor = 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/60';
   } else if (variant === 'warning') {
-    borderClass = 'border-amber-200 bg-amber-50/20';
-    badgeColor = 'bg-amber-100 text-amber-800';
+    borderClass = 'border-amber-900/50 bg-amber-950/20';
+    badgeColor = 'bg-amber-950/70 text-amber-300 border border-amber-800/60';
   }
 
   return (
-    <div className={`p-5 bg-white rounded-xl border ${borderClass} shadow-sm transition-all hover:shadow-md`}>
+    <div className={`p-5 bg-zinc-950 rounded-xl border ${borderClass} shadow-sm transition-all hover:border-zinc-700`}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</span>
-        {icon && <div className="text-slate-400">{icon}</div>}
+        <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">{title}</span>
+        {icon && <div className="text-zinc-400">{icon}</div>}
       </div>
       <div className="flex items-baseline space-x-2">
-        <span className="text-2xl font-bold tracking-tight text-slate-900">{value}</span>
+        <span className="text-2xl font-bold tracking-tight text-white">{value}</span>
         {badge && (
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeColor}`}>
             {badge}
           </span>
         )}
       </div>
-      {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
+      {subtitle && <p className="mt-1 text-xs text-zinc-400">{subtitle}</p>}
     </div>
   );
 };

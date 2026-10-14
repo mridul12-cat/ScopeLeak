@@ -136,44 +136,44 @@ export const OverviewPage: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Left 2 Cols: Critical Findings requiring review */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="lg:col-span-2 bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Key Scope Findings</h3>
-              <p className="text-xs text-slate-500">Incoming requests interpreted against original contract commitments</p>
+              <h3 className="text-sm font-bold text-white">Key Scope Findings</h3>
+              <p className="text-xs text-zinc-400">Incoming requests interpreted against original contract commitments</p>
             </div>
             <button
               onClick={() => onNavigate('findings')}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center space-x-1"
+              className="text-xs font-semibold text-blue-400 hover:text-blue-300 inline-flex items-center space-x-1"
             >
               <span>View All</span>
               <ArrowRight className="w-3 h-3" />
             </button>
           </div>
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-zinc-800/80">
             {findings.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-500">
+              <div className="p-8 text-center text-xs text-zinc-500">
                 No scope findings generated yet. Upload a contract and analyze requests.
               </div>
             ) : (
               findings.slice(0, 4).map((f) => {
                 const primaryEv = f.evidence_references?.[0];
                 return (
-                  <div key={f.id} className="p-5 hover:bg-slate-50/60 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div key={f.id} className="p-5 hover:bg-zinc-900/40 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <div className="space-y-1.5 flex-1">
                       <div className="flex items-center space-x-2">
                         <StatusBadge status={f.classification} />
-                        <span className="text-xs font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                        <span className="text-xs font-mono text-zinc-300 bg-black px-1.5 py-0.5 rounded border border-zinc-800">
                           {primaryEv?.ref || 'Clause Ref'}
                         </span>
                         {f.estimated_extra_hours && (
-                          <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200/60">
+                          <span className="text-xs font-semibold text-rose-300 bg-rose-950/70 px-2 py-0.5 rounded-full border border-rose-800/60">
                             +{f.estimated_extra_hours} hrs ({curr} {((f.estimated_value || (f.estimated_extra_hours * project.default_hourly_rate))).toLocaleString()})
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-800 font-medium leading-relaxed">
+                      <p className="text-xs text-zinc-300 font-medium leading-relaxed">
                         {f.explanation}
                       </p>
                     </div>
@@ -181,7 +181,7 @@ export const OverviewPage: React.FC<Props> = ({
                     <div className="flex items-center space-x-2 flex-shrink-0">
                       <button
                         onClick={() => onInspectFinding(f)}
-                        className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-xs font-semibold text-zinc-200 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition-colors"
                       >
                         Inspect Evidence
                       </button>
@@ -194,15 +194,15 @@ export const OverviewPage: React.FC<Props> = ({
         </div>
 
         {/* Right 1 Col: Audit Trail Highlights */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm flex flex-col">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden shadow-sm flex flex-col">
+          <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Audit Trail</h3>
-              <p className="text-xs text-slate-500">Human & system actions</p>
+              <h3 className="text-sm font-bold text-white">Audit Trail</h3>
+              <p className="text-xs text-zinc-400">Human & system actions</p>
             </div>
             <button
               onClick={() => onNavigate('audit')}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+              className="text-xs font-semibold text-blue-400 hover:text-blue-300"
             >
               Full Log
             </button>
@@ -210,15 +210,15 @@ export const OverviewPage: React.FC<Props> = ({
 
           <div className="p-4 flex-1 space-y-3 overflow-y-auto max-h-[360px]">
             {auditEvents.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6">No audit activity logged yet.</p>
+              <p className="text-xs text-zinc-500 text-center py-6">No audit activity logged yet.</p>
             ) : (
               auditEvents.slice(0, 5).map((ev) => (
-                <div key={ev.id} className="text-xs border-l-2 border-slate-300 pl-3 py-1 space-y-0.5">
-                  <div className="flex items-center justify-between text-slate-400 text-[10px]">
-                    <span className="font-semibold text-slate-700 capitalize">{ev.actor}</span>
+                <div key={ev.id} className="text-xs border-l-2 border-zinc-700 pl-3 py-1 space-y-0.5">
+                  <div className="flex items-center justify-between text-zinc-500 text-[10px]">
+                    <span className="font-semibold text-zinc-300 capitalize">{ev.actor}</span>
                     <span>{new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
-                  <p className="text-slate-800 font-medium line-clamp-2">{ev.description || ev.event_type}</p>
+                  <p className="text-zinc-300 font-medium line-clamp-2">{ev.description || ev.event_type}</p>
                 </div>
               ))
             )}

@@ -122,11 +122,13 @@ textarea::placeholder {
   background-color: #27272a !important;
 }
 
-/* Metric and Callout Cards */
+/* Metric and Callout Cards & Wildcard Opacity Matches */
+[class*="bg-rose-50"],
 .bg-rose-50, .bg-rose-50\/20 {
-  background-color: rgba(69, 10, 10, 0.35) !important;
+  background-color: rgba(69, 10, 10, 0.4) !important;
   border-color: rgba(153, 27, 27, 0.45) !important;
 }
+[class*="bg-rose-100"],
 .bg-rose-100 {
   background-color: rgba(153, 27, 27, 0.45) !important;
   color: #fca5a5 !important;
@@ -135,10 +137,12 @@ textarea::placeholder {
   color: #f87171 !important;
 }
 
+[class*="bg-emerald-50"],
 .bg-emerald-50, .bg-emerald-50\/20 {
-  background-color: rgba(6, 78, 59, 0.35) !important;
+  background-color: rgba(6, 78, 59, 0.4) !important;
   border-color: rgba(6, 95, 70, 0.45) !important;
 }
+[class*="bg-emerald-100"],
 .bg-emerald-100 {
   background-color: rgba(6, 95, 70, 0.45) !important;
   color: #6ee7b7 !important;
@@ -147,10 +151,12 @@ textarea::placeholder {
   color: #34d399 !important;
 }
 
+[class*="bg-amber-50"],
 .bg-amber-50, .bg-amber-50\/20 {
-  background-color: rgba(120, 53, 15, 0.35) !important;
+  background-color: rgba(120, 53, 15, 0.4) !important;
   border-color: rgba(146, 64, 14, 0.45) !important;
 }
+[class*="bg-amber-100"],
 .bg-amber-100 {
   background-color: rgba(146, 64, 14, 0.45) !important;
   color: #fcd34d !important;
@@ -159,10 +165,66 @@ textarea::placeholder {
   color: #fbbf24 !important;
 }
 
+[class*="bg-blue-50"],
 .bg-blue-50, .bg-blue-50\/20 {
-  background-color: rgba(30, 58, 138, 0.35) !important;
+  background-color: rgba(30, 58, 138, 0.4) !important;
   border-color: rgba(37, 99, 235, 0.45) !important;
+}
+[class*="bg-blue-100"],
+.bg-blue-100 {
+  background-color: rgba(30, 58, 138, 0.5) !important;
+  color: #93c5fd !important;
 }
 .text-blue-700, .text-blue-800 {
   color: #60a5fa !important;
 }
+
+[class*="bg-purple-50"],
+.bg-purple-50, .bg-purple-50\/20 {
+  background-color: rgba(88, 28, 135, 0.4) !important;
+  border-color: rgba(126, 34, 206, 0.45) !important;
+}
+[class*="bg-purple-100"],
+.bg-purple-100 {
+  background-color: rgba(88, 28, 135, 0.5) !important;
+  color: #d8b4fe !important;
+}
+.text-purple-700, .text-purple-800 {
+  color: #c084fc !important;
+}
+
+/* Table header & footer dark overrides */
+thead tr,
+thead tr[class*="bg-slate-"],
+tr[class*="bg-slate-100"] {
+  background-color: #18181b !important;
+  color: #a1a1aa !important;
+}
+tfoot tr[class*="bg-slate-"] {
+  background-color: #18181b !important;
+  color: #ffffff !important;
+}
+
+/* Wildcard slate background fallback */
+[class*="bg-slate-50"] {
+  background-color: #09090b !important;
+}
+
+/* Native file upload button dark theme */
+input[type="file"]::file-selector-button,
+input[type="file"]::-webkit-file-upload-button {
+  background-color: #27272a !important;
+  color: #f4f4f5 !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 0.5rem !important;
+  padding: 0.375rem 0.75rem !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  cursor: pointer !important;
+  transition: background-color 0.15s ease !important;
+}
+input[type="file"]::file-selector-button:hover,
+input[type="file"]::-webkit-file-upload-button:hover {
+  background-color: #3f3f46 !important;
+}
+

@@ -76,8 +76,8 @@ export const FinancialImpactPage: React.FC<Props> = ({ project, impact }) => {
 
       {/* Rate notice if missing rates */}
       {impact && impact.items_with_missing_rates_count > 0 && (
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center space-x-2">
-          <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+        <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-lg text-xs text-amber-300 flex items-center space-x-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
           <span>
             Notice: {impact.items_with_missing_rates_count} item(s) have unspecified custom rates; defaulted to project baseline ({curr} {project.default_hourly_rate}/hr).
           </span>
@@ -85,12 +85,12 @@ export const FinancialImpactPage: React.FC<Props> = ({ project, impact }) => {
       )}
 
       {/* Detailed Per-Item Financial Breakdown */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50">
-          <h3 className="text-sm font-bold text-slate-900">
+      <div className="bg-zinc-950 rounded-xl border border-zinc-800 overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-zinc-800 bg-zinc-900/40">
+          <h3 className="text-sm font-bold text-white">
             Deduplicated Financial Item Breakdown ({impact?.breakdown?.length || 0})
           </h3>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-zinc-400">
             Item-by-item calculation of billable hours, rates, and approval status
           </p>
         </div>
@@ -98,7 +98,7 @@ export const FinancialImpactPage: React.FC<Props> = ({ project, impact }) => {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-100/70 border-b border-slate-200 text-slate-600 uppercase font-semibold text-[10px] tracking-wider">
+              <tr className="bg-zinc-900 border-b border-zinc-800 text-zinc-400 uppercase font-semibold text-[10px] tracking-wider">
                 <th className="py-3 px-4">Item / Scope Description</th>
                 <th className="py-3 px-4">Hours (Type)</th>
                 <th className="py-3 px-4">Hourly Rate</th>
@@ -107,36 +107,36 @@ export const FinancialImpactPage: React.FC<Props> = ({ project, impact }) => {
                 <th className="py-3 px-4">Approval State</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-zinc-800/80">
               {!impact?.breakdown || impact.breakdown.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-400">
+                  <td colSpan={6} className="py-8 text-center text-zinc-500">
                     No financial line items recorded. Add work items or analyze client requests.
                   </td>
                 </tr>
               ) : (
                 impact.breakdown.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3.5 px-4 font-semibold text-slate-900 max-w-sm">
+                  <tr key={item.id} className="hover:bg-zinc-900/60 transition-colors">
+                    <td className="py-3.5 px-4 font-semibold text-white max-w-sm">
                       {item.description}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="font-bold text-slate-900">{item.hours} hrs</span>{' '}
-                      <span className="text-[10px] font-semibold text-slate-500 uppercase">
+                      <span className="font-bold text-white">{item.hours} hrs</span>{' '}
+                      <span className="text-[10px] font-semibold text-zinc-400 uppercase">
                         ({item.hours_type})
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap font-mono text-slate-700">
+                    <td className="py-3.5 px-4 whitespace-nowrap font-mono text-zinc-300">
                       {curr} {item.hourly_rate.toLocaleString()}
                     </td>
-                    <td className="py-3.5 px-4 whitespace-nowrap font-bold text-slate-900">
+                    <td className="py-3.5 px-4 whitespace-nowrap font-bold text-white">
                       {curr} {item.line_total.toLocaleString()}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       {item.finding_classification ? (
                         <StatusBadge status={item.finding_classification} />
                       ) : (
-                        <span className="text-slate-400 italic">Direct Task</span>
+                        <span className="text-zinc-500 italic">Direct Task</span>
                       )}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
@@ -148,14 +148,14 @@ export const FinancialImpactPage: React.FC<Props> = ({ project, impact }) => {
             </tbody>
             {impact?.breakdown && impact.breakdown.length > 0 && (
               <tfoot>
-                <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
+                <tr className="bg-zinc-900/80 border-t-2 border-zinc-800 font-bold text-white">
                   <td className="py-3 px-4">Total Potential Exposure</td>
                   <td className="py-3 px-4">{impact.potential_unapproved_hours} hrs</td>
                   <td className="py-3 px-4">-</td>
-                  <td className="py-3 px-4 text-rose-700 font-bold">
+                  <td className="py-3 px-4 text-rose-400 font-bold">
                     {curr} {impact.potential_unapproved_value.toLocaleString()}
                   </td>
-                  <td colSpan={2} className="py-3 px-4 text-right text-xs text-slate-500 font-normal">
+                  <td colSpan={2} className="py-3 px-4 text-right text-xs text-zinc-400 font-normal">
                     * Subject to human approval and executed addendum
                   </td>
                 </tr>
