@@ -61,24 +61,24 @@ export const Sidebar: React.FC<Props> = ({
   ];
 
   return (
-    <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col flex-shrink-0 border-r border-slate-800 select-none">
+    <aside className="w-64 bg-black text-zinc-300 flex flex-col flex-shrink-0 border-r border-zinc-800 select-none">
       
       {/* Brand Header */}
-      <div className="p-5 border-b border-slate-800">
+      <div className="p-5 border-b border-zinc-800">
         <div className="flex items-center space-x-2.5">
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
             <Layers className="w-5 h-5" />
           </div>
           <div>
             <h1 className="text-base font-bold text-white tracking-tight leading-none">ScopeLeak</h1>
-            <p className="text-[10px] text-slate-400 mt-1 font-medium">Evidence Engine</p>
+            <p className="text-[10px] text-zinc-400 mt-1 font-medium">Evidence Engine</p>
           </div>
         </div>
       </div>
 
       {/* Project Switcher */}
-      <div className="p-3 border-b border-slate-800/80 bg-slate-950/40">
-        <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 px-1">
+      <div className="p-3 border-b border-zinc-800 bg-zinc-950/70">
+        <label className="block text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1 px-1">
           Active Project
         </label>
         <div className="relative">
@@ -88,7 +88,7 @@ export const Sidebar: React.FC<Props> = ({
               const selected = projects.find((p) => p.id === e.target.value);
               if (selected) onSelectProject(selected);
             }}
-            className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-2.5 py-2 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium truncate"
+            className="w-full bg-zinc-900 border border-zinc-800 text-white text-xs rounded-lg px-2.5 py-2 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium truncate"
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -97,7 +97,7 @@ export const Sidebar: React.FC<Props> = ({
             ))}
             {projects.length === 0 && <option value="">No Projects</option>}
           </select>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+          <ChevronDown className="w-3.5 h-3.5 text-zinc-400 absolute right-2.5 top-3 pointer-events-none" />
         </div>
 
         <div className="mt-2 flex items-center justify-between px-1">
@@ -131,13 +131,13 @@ export const Sidebar: React.FC<Props> = ({
               className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-medium transition-colors text-left ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-sm font-semibold'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800/70'
               }`}
             >
-              <span className={isActive ? 'text-white' : 'text-slate-400'}>{item.icon}</span>
+              <span className={isActive ? 'text-white' : 'text-zinc-400'}>{item.icon}</span>
               <span className="flex-1 truncate">{item.label}</span>
               {item.badge && (
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-300">
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-800 text-zinc-300">
                   {item.badge}
                 </span>
               )}
@@ -147,8 +147,8 @@ export const Sidebar: React.FC<Props> = ({
       </nav>
 
       {/* AI & Engine Status Footer */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950/60 text-xs">
-        <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+      <div className="p-4 border-t border-zinc-800 bg-zinc-950/80 text-xs">
+        <div className="flex items-center justify-between text-[11px] text-zinc-400 mb-1.5">
           <span>AI Engine</span>
           {health?.gemini_configured ? (
             <span className="inline-flex items-center text-emerald-400 text-[10px] font-semibold">
@@ -162,7 +162,7 @@ export const Sidebar: React.FC<Props> = ({
             </span>
           )}
         </div>
-        <p className="text-[10px] text-slate-500 leading-tight">
+        <p className="text-[10px] text-zinc-500 leading-tight">
           Contract references verified deterministically.
         </p>
       </div>

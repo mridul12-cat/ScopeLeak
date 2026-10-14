@@ -3,8 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-slate-50 text-slate-900;
+    background-color: #000000;
+    color: #f4f4f5;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
   code, pre {
@@ -12,18 +17,152 @@
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Scrollbar for Black Theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #000000;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #27272a;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #3f3f46;
+}
+
+/* UI Black Theme Overrides */
+html, body, #root {
+  background-color: #000000 !important;
+  color: #f4f4f5;
+}
+
+/* Page canvas & backgrounds */
+.bg-slate-50,
+.bg-slate-100 {
+  background-color: #000000 !important;
+}
+
+/* Card, panel, and modal containers */
+.bg-white {
+  background-color: #09090b !important; /* Premium Obsidian/Zinc-950 */
+  border-color: #27272a !important; /* Subtle border-zinc-800 */
+}
+
+/* Header & Sidebar */
+aside.bg-slate-900 {
+  background-color: #000000 !important;
+  border-color: #18181b !important;
+}
+header.bg-white {
+  background-color: #000000 !important;
+  border-color: #18181b !important;
+}
+
+/* Table rows and list items hover */
+.hover\:bg-slate-50:hover,
+.hover\:bg-slate-50\/60:hover,
+.hover\:bg-slate-50\/80:hover,
+.hover\:bg-slate-100:hover {
+  background-color: #18181b !important;
+}
+
+/* Text Colors */
+.text-slate-900 {
+  color: #ffffff !important;
+}
+.text-slate-800 {
+  color: #f4f4f5 !important;
+}
+.text-slate-700 {
+  color: #e4e4e7 !important;
+}
+.text-slate-600 {
+  color: #d4d4d8 !important;
+}
+.text-slate-500 {
+  color: #a1a1aa !important;
+}
+.text-slate-400 {
+  color: #71717a !important;
+}
+
+/* Borders and Dividers */
+.border-slate-200,
+.border-slate-300,
+.border-slate-100 {
+  border-color: #27272a !important;
+}
+.divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+.divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #27272a !important;
+}
+
+/* Inputs, Textareas, and Selects */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+textarea,
+select {
+  background-color: #09090b !important;
+  color: #ffffff !important;
+  border-color: #27272a !important;
+}
+input::placeholder,
+textarea::placeholder {
+  color: #71717a !important;
+}
+
+/* Badges and Sub-elements in Dark Theme */
+.bg-slate-100 {
+  background-color: #18181b !important;
+  color: #e4e4e7 !important;
+}
+.bg-slate-200 {
+  background-color: #27272a !important;
+}
+
+/* Metric and Callout Cards */
+.bg-rose-50, .bg-rose-50\/20 {
+  background-color: rgba(69, 10, 10, 0.35) !important;
+  border-color: rgba(153, 27, 27, 0.45) !important;
+}
+.bg-rose-100 {
+  background-color: rgba(153, 27, 27, 0.45) !important;
+  color: #fca5a5 !important;
+}
+.text-rose-700, .text-rose-800 {
+  color: #f87171 !important;
+}
+
+.bg-emerald-50, .bg-emerald-50\/20 {
+  background-color: rgba(6, 78, 59, 0.35) !important;
+  border-color: rgba(6, 95, 70, 0.45) !important;
+}
+.bg-emerald-100 {
+  background-color: rgba(6, 95, 70, 0.45) !important;
+  color: #6ee7b7 !important;
+}
+.text-emerald-700, .text-emerald-800 {
+  color: #34d399 !important;
+}
+
+.bg-amber-50, .bg-amber-50\/20 {
+  background-color: rgba(120, 53, 15, 0.35) !important;
+  border-color: rgba(146, 64, 14, 0.45) !important;
+}
+.bg-amber-100 {
+  background-color: rgba(146, 64, 14, 0.45) !important;
+  color: #fcd34d !important;
+}
+.text-amber-700, .text-amber-800 {
+  color: #fbbf24 !important;
+}
+
+.bg-blue-50, .bg-blue-50\/20 {
+  background-color: rgba(30, 58, 138, 0.35) !important;
+  border-color: rgba(37, 99, 235, 0.45) !important;
+}
+.text-blue-700, .text-blue-800 {
+  color: #60a5fa !important;
 }

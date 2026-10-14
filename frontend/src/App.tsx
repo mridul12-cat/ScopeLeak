@@ -302,7 +302,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50 font-sans">
+    <div className="flex h-screen overflow-hidden bg-black font-sans text-slate-100">
       
       {/* Persistent Left Sidebar */}
       <Sidebar
@@ -317,7 +317,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-black">
         
         {/* Top Header */}
         <Header
@@ -332,11 +332,11 @@ export const App: React.FC = () => {
 
         {/* Global Error Banner */}
         {errorMsg && (
-          <div className="bg-rose-50 border-b border-rose-200 px-8 py-2.5 flex items-center justify-between text-xs text-rose-800">
+          <div className="bg-rose-950/80 border-b border-rose-800 px-8 py-2.5 flex items-center justify-between text-xs text-rose-300">
             <span>{errorMsg}</span>
             <button
               onClick={() => setErrorMsg(null)}
-              className="text-rose-600 hover:text-rose-900 font-semibold ml-4"
+              className="text-rose-400 hover:text-rose-200 font-semibold ml-4"
             >
               Dismiss
             </button>
@@ -344,7 +344,7 @@ export const App: React.FC = () => {
         )}
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-8 bg-black">
           <div className="max-w-7xl mx-auto">
             {currentSection === 'overview' && (
               <OverviewPage
